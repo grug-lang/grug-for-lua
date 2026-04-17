@@ -1,1 +1,1 @@
-# grug-for-lua
+# grug for Lua
