@@ -13,10 +13,17 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install Lua 5.1
+      - name: Install LuaJIT and Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.1
+          sudo apt-get install -y luajit libluajit-5.1-dev cmake build-essential
 
-      - name: Run script
-        run: lua5.1 hello.lua
+      - name: Clone and build grug-tests
+        run: |
+          git clone https://github.com/grug-lang/grug-tests
+          cd grug-tests
+          cmake -S . -B build
+          cmake --build build
+
+      - name: Run tests
+        run: luajit tests.lua ./grug-tests
