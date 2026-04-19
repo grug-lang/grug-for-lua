@@ -43,8 +43,14 @@ local function check_custom_id_is_pascal(type_name)
     if first_char:match("%l") then
         error("'" .. type_name .. "' seems like a custom ID type, but it doesn't start in Uppercase")
     end
-end
 
+    for i = 1, #type_name do
+        local c = type_name:sub(i, i)
+        if not c:match("%a") and not c:match("%d") then
+            error("'" .. type_name .. "' seems like a custom ID type, but it contains '" .. c .. "', which isn't uppercase/lowercase/a digit")
+        end
+    end
+end
 
 local function get_file_entity_type(grug_filename)
     -- Extract and validate the entity type from a grug filename.

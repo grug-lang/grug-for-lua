@@ -1322,7 +1322,6 @@ function Parser:parse_while_statement(i)
     return WhileStatement(condition, body)
 end
 
--- numeric conversion
 function Parser:str_to_number(s)
     local f = tonumber(s)
 
@@ -1332,6 +1331,12 @@ function Parser:str_to_number(s)
 
     if f ~= 0 and math.abs(f) < MIN_F64 then
         error("The number " .. s .. " is too close to zero")
+    end
+
+    if f == 0 then
+        if s:find("[123456789]") then
+            error("The number " .. s .. " is too close to zero")
+        end
     end
 
     return f
@@ -1447,15 +1452,19 @@ local function make_binary(self, i, next_fn, ops, ctor)
     local expr = next_fn(self, i)
 
     while true do
-        local t = self:peek(i[1])
-        local t2 = self:peek(i[1] + 1)
+        local t = i[1] <= #self.tokens and self:peek(i[1]) or nil
 
-        if t and t.type == "SPACE_TOKEN" and t2 and ops[t2.type] then
-            i[1] = i[1] + 1
-            local op = self:consume(i).type
-            self:consume_space(i)
-            local right = next_fn(self, i)
-            expr = ctor(expr, op, right)
+        if t and t.type == "SPACE_TOKEN" then
+            local t2 = i[1] + 1 <= #self.tokens and self:peek(i[1] + 1) or nil
+            if t2 and ops[t2.type] then
+                i[1] = i[1] + 1
+                local op = self:consume(i).type
+                self:consume_space(i)
+                local right = next_fn(self, i)
+                expr = ctor(expr, op, right)
+            else
+                break
+            end
         else
             break
         end
@@ -2172,8 +2181,14 @@ local function check_custom_id_is_pascal(type_name)
     if first_char:match("%l") then
         error("'" .. type_name .. "' seems like a custom ID type, but it doesn't start in Uppercase")
     end
-end
 
+    for i = 1, #type_name do
+        local c = type_name:sub(i, i)
+        if not c:match("%a") and not c:match("%d") then
+            error("'" .. type_name .. "' seems like a custom ID type, but it contains '" .. c .. "', which isn't uppercase/lowercase/a digit")
+        end
+    end
+end
 
 local function get_file_entity_type(grug_filename)
     -- Extract and validate the entity type from a grug filename.
