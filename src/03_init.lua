@@ -1,3 +1,6 @@
+local grug = {}
+grug.__index = grug
+
 local function read(path)
     local file = assert(io.open(path, "r"))
     local data, err = file:read("*all")
@@ -28,12 +31,14 @@ local function dump(tbl, indent)
     print(prefix .. "}")
 end
 
-local function compile_grug_file(self, grug_file_relative_path)
+function grug:compile_grug_file(grug_file_relative_path)
     local grug_file_absolute_path = self.mods_dir_path .. '/' .. grug_file_relative_path
 
     local text = read(grug_file_absolute_path)
 
     local tokens = tokenize(text)
+
+    local ast = Parser.new(tokens):parse()
 end
 
 function grug.init(settings)
@@ -63,8 +68,7 @@ function grug.init(settings)
         return nil
     end
 
-    return {
+    return setmetatable({
         mods_dir_path = mods_dir_path,
-        compile_grug_file = compile_grug_file
-    }
+    }, grug)
 end

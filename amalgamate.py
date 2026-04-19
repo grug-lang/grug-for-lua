@@ -20,10 +20,9 @@ def main():
             outfile.write(f"-- BEGIN {filename}\n")
             outfile.write(content)
 
-            if i < len(files) - 1:
-                outfile.write("\n")
+            outfile.write("\n")
 
-        outfile.write("\nreturn grug\n")
+        outfile.write("return grug\n")
 
 
 if __name__ == "__main__":

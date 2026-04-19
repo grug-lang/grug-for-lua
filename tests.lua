@@ -72,6 +72,10 @@ function callbacks.compile_grug_file(state_ptr, file_path_, error_out_)
     end)
 
     if not status then
+        -- Removes the leading path, like `./grug.lua:915: msg`.
+        -- This way we can use `error("msg")` instead of `error("msg", 0)`.
+        err = err:gsub("^.-:.-: ", "")
+
         last_error = ffi.new("char[?]", #err + 1)
         ffi.copy(last_error, err)
         error_out_[0] = last_error
