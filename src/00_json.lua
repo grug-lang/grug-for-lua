@@ -383,6 +383,3 @@ function json.decode(str)
   end
   return res
 end
-
-
-return json
