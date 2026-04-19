@@ -4,28 +4,6 @@ local ffi = require("ffi")
 
 local grug_tests_path = arg[1] or "../grug-tests"
 
--- TODO: REMOVE!
-local function dump(tbl, indent)
-    indent = indent or 0
-    local prefix = string.rep("  ", indent)
-
-    if type(tbl) ~= "table" then
-        print(prefix .. tostring(tbl))
-        return
-    end
-
-    print(prefix .. "{")
-    for k, v in pairs(tbl) do
-        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
-        if type(v) == "table" then
-            dump(v, indent + 1)
-        else
-            print(tostring(v))
-        end
-    end
-    print(prefix .. "}")
-end
-
 local function read(path)
     local file = assert(io.open(path, "r"))
     local data, err = file:read("*all")
@@ -62,7 +40,9 @@ local callbacks = {}
 
 local state = nil
 
-local file_map = {}
+local files = {} -- Ensures compiled files are not prematurely GCed.
+
+local last_error = nil
 
 function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
     local mod_api_path = ffi.string(mod_api_path_)
@@ -86,9 +66,21 @@ end
 function callbacks.compile_grug_file(state_ptr, file_path_, error_out_)
     local file_path = ffi.string(file_path_)
 
-    local grug_file = state:compile_grug_file(file_path)
+    local file
+    local status, err = pcall(function()
+        file = state:compile_grug_file(file_path)
+    end)
 
-    return nil
+    if not status then
+        last_error = ffi.new("char[?]", #err + 1)
+        ffi.copy(last_error, err)
+        error_out_[0] = last_error
+        return nil
+    end
+
+    file_id = #files + 1
+    files[file_id] = file
+    return file
 end
 
 function callbacks.init_globals(state_ptr, file_id)

@@ -6,12 +6,34 @@ local function read(path)
     return data
 end
 
+-- TODO: REMOVE!
+local function dump(tbl, indent)
+    indent = indent or 0
+    local prefix = string.rep("  ", indent)
+
+    if type(tbl) ~= "table" then
+        print(prefix .. tostring(tbl))
+        return
+    end
+
+    print(prefix .. "{")
+    for k, v in pairs(tbl) do
+        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
+        if type(v) == "table" then
+            dump(v, indent + 1)
+        else
+            print(tostring(v))
+        end
+    end
+    print(prefix .. "}")
+end
+
 local function compile_grug_file(self, grug_file_relative_path)
     local grug_file_absolute_path = self.mods_dir_path .. '/' .. grug_file_relative_path
-    print('grug_file_absolute_path: ' .. grug_file_absolute_path)
 
     local text = read(grug_file_absolute_path)
-    print('text: ' .. text)
+
+    local tokens = tokenize(text)
 end
 
 function grug.init(settings)
