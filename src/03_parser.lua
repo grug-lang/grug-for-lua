@@ -225,7 +225,8 @@ end
 
 function Parser:peek(i)
     if i > #self.tokens then
-        error("token_index " .. i .. " was out of bounds in peek()")
+        -- Subtract 1 to match the 0-based indexing expected by the test runner
+        error("token_index " .. (i - 1) .. " was out of bounds in peek_token()")
     end
     return self.tokens[i]
 end
