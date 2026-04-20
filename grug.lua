@@ -987,7 +987,6 @@ function Parser:decrease_parsing_depth()
     self.parsing_depth = self.parsing_depth - 1
 end
 
--- TODO: Get rid of this fn, as it was just in Python to map strings to enums
 function Parser:parse_type(type_str)
     if type_str == "bool" then return "BOOL" end
     if type_str == "number" then return "NUMBER" end
@@ -2587,6 +2586,9 @@ end
 -- BEGIN 06_entity.lua
 local Entity = {}
 
+-- This is not marked local, because tests.lua patches _GrugEntity._run_game_fn().
+_GrugEntity = Entity
+
 local MAX_DEPTH = 100
 
 -- Control flow exception tokens used to mimic Python's exception-based control flow
@@ -2951,13 +2953,19 @@ function Entity:_run_game_fn(name, ...)
     local success, result = pcall(game_fn, self.state, unpack(args))
 
     if not success then
-        self.state.runtime_error_handler(
-            result,
-            "GAME_FN_ERROR",
-            parent_fn_name,
-            self.file.relative_path
-        )
-        error({ type = "RERAISED_GAME_FN_ERROR" })
+        if result.type == "GAME_FN_ERROR" then
+            self.state.runtime_error_handler(
+                result.reason,
+                "GAME_FN_ERROR",
+                parent_fn_name,
+                self.file.relative_path
+            )
+            error({ type = "RERAISED_GAME_FN_ERROR" })
+        else
+            -- We don't want to call runtime_error_handler() a second time
+            -- on game function errors.
+            error(result)
+        end
     end
 
     self.fn_name = parent_fn_name

@@ -7,12 +7,31 @@ if whitelisted_test == "" then whitelisted_test = nil end
 
 local grug_tests_path = arg[2] or "../grug-tests"
 
-local function read(path)
-    local file = assert(io.open(path, "r"))
-    local data, err = file:read("*all")
-    file:close()
-    assert(data, err)
-    return data
+-- TODO: Use this in all 5 spots that call traceback.print_exc() in Python
+local function print_traceback(err)
+    io.stderr:write(debug.traceback(tostring(err)) .. "\n")
+end
+
+-- TODO: REMOVE!
+local function dump(tbl, indent)
+    indent = indent or 0
+    local prefix = string.rep("  ", indent)
+
+    if type(tbl) ~= "table" then
+        print(prefix .. tostring(tbl))
+        return
+    end
+
+    print(prefix .. "{")
+    for k, v in pairs(tbl) do
+        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
+        if type(v) == "table" then
+            dump(v, indent + 1)
+        else
+            print(tostring(v))
+        end
+    end
+    print(prefix .. "}")
 end
 
 ffi.cdef[[
@@ -33,6 +52,14 @@ ffi.cdef[[
         bool (*generate_file_from_json)(void* state_ptr, const char* input_json_path, const char* output_grug_path);
         void (*game_fn_error)(void* state_ptr, const char* reason);
     } grug_state_vtable;
+
+    enum grug_runtime_error_type {
+        GRUG_ON_FN_STACK_OVERFLOW,
+        GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
+        GRUG_ON_FN_GAME_FN_ERROR,
+    };
+
+    void grug_tests_runtime_error_handler(const char *reason, enum grug_runtime_error_type type, const char *on_fn_name, const char *on_fn_path);
 
     void grug_tests_run(const char *tests_dir_path, const char *mod_api_path, grug_state_vtable vtable, const char *whitelisted_test);
 ]]
@@ -97,6 +124,21 @@ local current_entity = nil
 
 local grug_runtime_err = nil
 
+local game_fn_error_reason = nil
+
+local original_run_game_fn = _GrugEntity._run_game_fn
+
+local runtime_error_type_values = {
+    ["STACK_OVERFLOW"] = 0,
+    ["TIME_LIMIT_EXCEEDED"] = 1,
+    ["GAME_FN_ERROR"] = 2,
+}
+
+local function custom_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path)
+    local err = assert(runtime_error_type_values[grug_runtime_error_type])
+    grug_lib.grug_tests_runtime_error_handler(reason, err, on_fn_name, on_fn_path)
+end
+
 function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
     local mod_api_path = ffi.string(mod_api_path_)
     local mods_dir_path = ffi.string(mods_dir_path_)
@@ -104,8 +146,9 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
     local new_state
     local status, err = pcall(function()
         new_state = grug.init({
-            mod_api_path=mod_api_path,
-            mods_dir_path=mods_dir_path
+            runtime_error_handler = custom_runtime_error_handler,
+            mod_api_path = mod_api_path,
+            mods_dir_path = mods_dir_path
         })
     end)
 
@@ -156,44 +199,30 @@ function callbacks.init_globals(state_ptr, file_id_)
     local grug_file = files[file_id]
     assert(grug_file)
 
-    current_entity = grug_file:create_entity()
-end
+    -- Execute with error handling
+    -- We use pcall because we can't propagate Lua errors to host fns
+    local status, err = pcall(function()
+        current_entity = grug_file:create_entity()
+    end)
 
--- TODO: REMOVE!
-local function dump(tbl, indent)
-    indent = indent or 0
-    local prefix = string.rep("  ", indent)
-
-    if type(tbl) ~= "table" then
-        print(prefix .. tostring(tbl))
-        return
-    end
-
-    print(prefix .. "{")
-    for k, v in pairs(tbl) do
-        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
-        if type(v) == "table" then
-            dump(v, indent + 1)
+    if not status then
+        if type(err) == "table" and (
+            err.type == "TIME_LIMIT_EXCEEDED" or 
+            err.type == "STACK_OVERFLOW" or 
+            err.type == "RERAISED_GAME_FN_ERROR"
+        ) then
+            grug_runtime_err = err
         else
-            print(tostring(v))
+            print_traceback(err)
         end
     end
-    print(prefix .. "}")
-end
-
--- TODO: Use this in all 5 spots that call traceback.print_exc() in Python
-local function print_traceback(err)
-    io.stderr:write(debug.traceback(tostring(err)) .. "\n")
 end
 
 local function c_to_lua_value(value, typ)
-    -- TODO: Check that commenting out any of these branches causes tests to fail
     if typ == "number" then
         return tonumber(value._number)
     elseif typ == "bool" then
-        return value._bool -- TODO: Should this use tonumber()?
-        -- TODO: Gemini suggested this:
-        -- return value._bool ~= 0 and value._bool ~= false
+        return value._bool
     elseif typ == "string" then
         return ffi.string(value._string)
     end
@@ -223,15 +252,13 @@ function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_
     end
 
     -- Execute with error handling
-    -- We use pcall because propagating Lua errors through a C boundary (FFI callback)
-    -- is undefined behavior/unstable in many environments.
+    -- We use pcall because we can't propagate Lua errors to host fns
     grug_runtime_err = nil
     local status, err = pcall(function()
         current_entity:_run_on_fn(fn_name, unpack(lua_args))
     end)
 
     if not status then
-        -- Exception catching
         if type(err) == "table" and (
             err.type == "TIME_LIMIT_EXCEEDED" or 
             err.type == "STACK_OVERFLOW" or 
@@ -274,10 +301,31 @@ function callbacks.generate_file_from_json(state_ptr, input_json_path_, output_g
     return true
 end
 
-function callbacks.game_fn_error(state_ptr, message_)
-    local message = ffi.string(message_)
+function _GrugEntity:_run_game_fn(name, ...)
+    -- Call the original method
+    result = original_run_game_fn(self, name, ...)
 
-    print("Game function error: " .. ffi.string(message)) -- TODO: REMOVE!
+    -- Raise game_fn_error_reason if it's not nil
+    if game_fn_error_reason then
+        reason = game_fn_error_reason
+
+        assert(state)
+        state.runtime_error_handler(
+            reason,
+            "GAME_FN_ERROR",
+            self.fn_name,
+            self.file.relative_path
+        )
+
+        game_fn_error_reason = nil
+        error({ type = "RERAISED_GAME_FN_ERROR", reason = reason })
+    end
+
+    return result
+end
+
+function callbacks.game_fn_error(state_ptr, message_)
+    game_fn_error_reason = ffi.string(message_)
 end
 
 function register_game_fns()
