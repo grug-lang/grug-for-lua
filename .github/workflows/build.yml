@@ -9,14 +9,32 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        lua:
+          - luajit
+          - lua5.1
+          - lua5.3
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install LuaJIT and Build Dependencies
+      - name: Install Lua and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y luajit libluajit-5.1-dev cmake build-essential
+          sudo apt-get install -y cmake build-essential
+
+          if [ "${{ matrix.lua }}" = "luajit" ]; then
+            sudo apt-get install -y luajit libluajit-5.1-dev
+            echo "LUA_BIN=luajit" >> $GITHUB_ENV
+          elif [ "${{ matrix.lua }}" = "lua5.1" ]; then
+            sudo apt-get install -y lua5.1 liblua5.1-0-dev
+            echo "LUA_BIN=lua5.1" >> $GITHUB_ENV
+          elif [ "${{ matrix.lua }}" = "lua5.3" ]; then
+            sudo apt-get install -y lua5.3 liblua5.3-dev
+            echo "LUA_BIN=lua5.3" >> $GITHUB_ENV
+          fi
 
       - name: Clone and build grug-tests
         run: |
@@ -26,18 +44,20 @@ jobs:
           cmake --build build
 
       - name: Generate amalgamation
+        if: matrix.lua == 'luajit'
         run: python amalgamate.py
 
       - name: Ensure amalgamation is up-to-date
+        if: matrix.lua == 'luajit'
         run: git diff --exit-code
 
       - name: Run tests
-        run: luajit tests.lua "" ./grug-tests
+        run: $LUA_BIN tests.lua "" ./grug-tests
 
       - name: Run Lua example (minimal)
         run: |
           cd examples/minimal
-          lua example.lua
+          $LUA_BIN example.lua
 
   lint:
     runs-on: ubuntu-latest
