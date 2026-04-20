@@ -392,6 +392,28 @@ local SPACES_PER_INDENT = 4
 
 local src
 
+-- TODO: REMOVE!
+local function dump(tbl, indent)
+    indent = indent or 0
+    local prefix = string.rep("  ", indent)
+
+    if type(tbl) ~= "table" then
+        print(prefix .. tostring(tbl))
+        return
+    end
+
+    print(prefix .. "{")
+    for k, v in pairs(tbl) do
+        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
+        if type(v) == "table" then
+            dump(v, indent + 1)
+        else
+            print(tostring(v))
+        end
+    end
+    print(prefix .. "}")
+end
+
 local function get_character_line_number(idx)
     local prefix = src:sub(1, idx - 1)
     local _, count = prefix:gsub("\n", "")
@@ -965,6 +987,7 @@ function Parser:decrease_parsing_depth()
     self.parsing_depth = self.parsing_depth - 1
 end
 
+-- TODO: Get rid of this fn, as it was just in Python to map strings to enums
 function Parser:parse_type(type_str)
     if type_str == "bool" then return "BOOL" end
     if type_str == "number" then return "NUMBER" end
@@ -1751,8 +1774,10 @@ function TypePropagator:validate_resource_string(str, resource_extension)
         error("resource name \"" .. str .. "\" cannot end with .")
     end
 
-    if resource_extension and string.sub(str, -#resource_extension) ~= resource_extension then
-        error("The resource '" .. str .. "' was supposed to have the extension '" .. resource_extension .. "'")
+    if resource_extension and resource_extension ~= "" then
+        if string.sub(str, -#resource_extension) ~= resource_extension then
+            error("The resource '" .. str .. "' was supposed to have the extension '" .. resource_extension .. "'")
+        end
     end
 end
 
@@ -2595,7 +2620,7 @@ end
 
 function Entity:_init_globals(global_variables)
     self.fn_name = "init_globals"
-    self.global_variables["me"] = self.me_id
+    self.global_variables["me"] = { __grug_type = "id", value = self.me_id }
 
     local old_fn_depth = self.state.fn_depth
     self.state.fn_depth = self.state.fn_depth + 1
@@ -2691,7 +2716,7 @@ function Entity:_get_expected_type(type_name)
     if type_name == "string" or type_name == "resource" or type_name == "entity" then
         return "string"
     end
-    return "userdata"
+    return "table"
 end
 
 function Entity:_run_statements(statements)
@@ -2734,11 +2759,13 @@ function Entity:_run_expr(expr)
     elseif expr.value ~= nil then
         return expr.value
     elseif expr.string ~= nil then
-        if expr.result == "string" then
+        assert(type(expr.result) == "table")
+        local typ = expr.result.type
+        if typ == "STRING" then
             return expr.string
-        elseif expr.result == "resource" then
+        elseif typ == "RESOURCE" then
             return self.file.mod .. "/" .. expr.string
-        elseif expr.result == "entity" then
+        elseif typ == "ENTITY" then
             if string.find(expr.string, ":") then
                 return expr.string
             else
@@ -2994,28 +3021,6 @@ local function write(path, text)
     local ok, err = file:write(text)
     file:close()
     assert(ok, err)
-end
-
--- TODO: REMOVE!
-local function dump(tbl, indent)
-    indent = indent or 0
-    local prefix = string.rep("  ", indent)
-
-    if type(tbl) ~= "table" then
-        print(prefix .. tostring(tbl))
-        return
-    end
-
-    print(prefix .. "{")
-    for k, v in pairs(tbl) do
-        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
-        if type(v) == "table" then
-            dump(v, indent + 1)
-        else
-            print(tostring(v))
-        end
-    end
-    print(prefix .. "}")
 end
 
 local function check_custom_id_is_pascal(type_name)

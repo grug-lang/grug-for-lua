@@ -226,8 +226,10 @@ function TypePropagator:validate_resource_string(str, resource_extension)
         error("resource name \"" .. str .. "\" cannot end with .")
     end
 
-    if resource_extension and string.sub(str, -#resource_extension) ~= resource_extension then
-        error("The resource '" .. str .. "' was supposed to have the extension '" .. resource_extension .. "'")
+    if resource_extension and resource_extension ~= "" then
+        if string.sub(str, -#resource_extension) ~= resource_extension then
+            error("The resource '" .. str .. "' was supposed to have the extension '" .. resource_extension .. "'")
+        end
     end
 end
 

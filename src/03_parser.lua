@@ -292,6 +292,7 @@ function Parser:decrease_parsing_depth()
     self.parsing_depth = self.parsing_depth - 1
 end
 
+-- TODO: Get rid of this fn, as it was just in Python to map strings to enums
 function Parser:parse_type(type_str)
     if type_str == "bool" then return "BOOL" end
     if type_str == "number" then return "NUMBER" end

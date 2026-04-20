@@ -197,7 +197,7 @@ local function c_to_lua_value(value, typ)
     elseif typ == "string" then
         return ffi.string(value._string)
     end
-    return tonumber(value._id)
+    return { __grug_type = "id", value = tonumber(value._id) }
 end
 
 function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_)
@@ -283,15 +283,19 @@ end
 function register_game_fns()
     for _, name in ipairs(game_fn_names) do
         local c_fn = grug_lib["game_fn_" .. name]
-        local game_fn_entry = state.mod_api.game_functions[name]
-        local return_type = game_fn_entry and game_fn_entry.return_type
+        local return_type = state.mod_api.game_functions[name].return_type
 
         local fn = function(st, ...)
             local args = {...}
             local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
+
             for i, v in ipairs(args) do
                 local t = type(v)
-                if t == "number" then
+
+                if t == "table" then
+                    assert(v.__grug_type == "id")
+                    c_args[i-1]._id = v.value
+                elseif t == "number" then
                     c_args[i-1]._number = v
                 elseif t == "boolean" then
                     c_args[i-1]._bool = v
@@ -300,17 +304,22 @@ function register_game_fns()
                     ffi.copy(b, v)
                     c_args[i-1]._string = b
                 else
-                    c_args[i-1]._id = v
+                    error("Unsupported argument type: " .. t)
                 end
             end
+
             local result_u64 = c_fn(nil, c_args)
+
             if grug_runtime_err ~= nil then
                 error(grug_runtime_err)
             end
+
             local tmp = ffi.new("uint64_t[1]")
             tmp[0] = result_u64
+
             local union = ffi.new("GrugValueUnion")
             ffi.copy(union, tmp, ffi.sizeof("GrugValueUnion"))
+
             return c_to_lua_value(union, return_type)
         end
 

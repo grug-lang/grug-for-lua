@@ -2,6 +2,28 @@ local SPACES_PER_INDENT = 4
 
 local src
 
+-- TODO: REMOVE!
+local function dump(tbl, indent)
+    indent = indent or 0
+    local prefix = string.rep("  ", indent)
+
+    if type(tbl) ~= "table" then
+        print(prefix .. tostring(tbl))
+        return
+    end
+
+    print(prefix .. "{")
+    for k, v in pairs(tbl) do
+        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
+        if type(v) == "table" then
+            dump(v, indent + 1)
+        else
+            print(tostring(v))
+        end
+    end
+    print(prefix .. "}")
+end
+
 local function get_character_line_number(idx)
     local prefix = src:sub(1, idx - 1)
     local _, count = prefix:gsub("\n", "")

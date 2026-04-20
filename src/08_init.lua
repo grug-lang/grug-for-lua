@@ -16,28 +16,6 @@ local function write(path, text)
     assert(ok, err)
 end
 
--- TODO: REMOVE!
-local function dump(tbl, indent)
-    indent = indent or 0
-    local prefix = string.rep("  ", indent)
-
-    if type(tbl) ~= "table" then
-        print(prefix .. tostring(tbl))
-        return
-    end
-
-    print(prefix .. "{")
-    for k, v in pairs(tbl) do
-        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
-        if type(v) == "table" then
-            dump(v, indent + 1)
-        else
-            print(tostring(v))
-        end
-    end
-    print(prefix .. "}")
-end
-
 local function check_custom_id_is_pascal(type_name)
     -- Validate that a custom ID type name is in PascalCase
 

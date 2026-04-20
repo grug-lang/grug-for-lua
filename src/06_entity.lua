@@ -33,7 +33,7 @@ end
 
 function Entity:_init_globals(global_variables)
     self.fn_name = "init_globals"
-    self.global_variables["me"] = self.me_id
+    self.global_variables["me"] = { __grug_type = "id", value = self.me_id }
 
     local old_fn_depth = self.state.fn_depth
     self.state.fn_depth = self.state.fn_depth + 1
@@ -129,7 +129,7 @@ function Entity:_get_expected_type(type_name)
     if type_name == "string" or type_name == "resource" or type_name == "entity" then
         return "string"
     end
-    return "userdata"
+    return "table"
 end
 
 function Entity:_run_statements(statements)
@@ -172,11 +172,13 @@ function Entity:_run_expr(expr)
     elseif expr.value ~= nil then
         return expr.value
     elseif expr.string ~= nil then
-        if expr.result == "string" then
+        assert(type(expr.result) == "table")
+        local typ = expr.result.type
+        if typ == "STRING" then
             return expr.string
-        elseif expr.result == "resource" then
+        elseif typ == "RESOURCE" then
             return self.file.mod .. "/" .. expr.string
-        elseif expr.result == "entity" then
+        elseif typ == "ENTITY" then
             if string.find(expr.string, ":") then
                 return expr.string
             else
