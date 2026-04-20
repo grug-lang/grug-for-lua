@@ -23,17 +23,13 @@ local function check_custom_id_is_pascal(type_name)
         error("type_name is empty")
     end
 
-    local first_char = type_name:sub(1, 1)
-
-    if first_char:match("%l") then
+    if type_name:sub(1, 1):match("%l") then
         error("'" .. type_name .. "' seems like a custom ID type, but it doesn't start in Uppercase")
     end
 
-    for i = 1, #type_name do
-        local c = type_name:sub(i, i)
-        if not c:match("%a") and not c:match("%d") then
-            error("'" .. type_name .. "' seems like a custom ID type, but it contains '" .. c .. "', which isn't uppercase/lowercase/a digit")
-        end
+    local bad_char = type_name:match("[^%a%d]")
+    if bad_char then
+        error("'" .. type_name .. "' seems like a custom ID type, but it contains '" .. bad_char .. "', which isn't uppercase/lowercase/a digit")
     end
 end
 
@@ -80,24 +76,14 @@ function grug:compile_grug_file(grug_file_relative_path)
 
     TypePropagator.new(ast, mod, entity_type, self.mod_api):fill()
 
-    local global_variables = {}
+    local global_variables, on_fns, helper_fns = {}, {}, {}
     for _, stmt in ipairs(ast) do
         if stmt.stmt_type == "VariableStatement" then
             table.insert(global_variables, stmt)
-        end
-    end
-
-    local on_fns = {}
-    for _, stmt in ipairs(ast) do
-        if stmt.stmt_type == "OnFn" then
+        elseif stmt.stmt_type == "OnFn" then
             on_fns[stmt.fn_name] = stmt
             stmt.fn_name = nil
-        end
-    end
-
-    local helper_fns = {}
-    for _, stmt in ipairs(ast) do
-        if stmt.stmt_type == "HelperFn" then
+        elseif stmt.stmt_type == "HelperFn" then
             helper_fns[stmt.fn_name] = stmt
             stmt.fn_name = nil
         end
@@ -152,10 +138,7 @@ local function assert_on_functions_sorted(entity_name, on_functions)
         table.insert(keys, fn.name)
     end
 
-    local sorted_keys = {}
-    for _, k in ipairs(keys) do
-        table.insert(sorted_keys, k)
-    end
+    local sorted_keys = { unpack(keys) }
     table.sort(sorted_keys)
 
     for i, actual in ipairs(keys) do
@@ -182,20 +165,16 @@ local function assert_mod_api(mod_api)
         end
 
         local on_functions = entity.on_functions
-        if on_functions == nil then
-            goto continue
+        if on_functions ~= nil then
+            if type(on_functions) ~= "table" then
+                error(string.format(
+                    "Error: 'on_functions' for entity '%s' must be a JSON array",
+                    entity_name
+                ))
+            end
+
+            assert_on_functions_sorted(entity_name, on_functions)
         end
-
-        if type(on_functions) ~= "table" then
-            error(string.format(
-                "Error: 'on_functions' for entity '%s' must be a JSON array",
-                entity_name
-            ))
-        end
-
-        assert_on_functions_sorted(entity_name, on_functions)
-
-        ::continue::
     end
 
     local game_functions = mod_api.game_functions
@@ -210,10 +189,10 @@ end
 
 function grug.init(settings)
     local runtime_error_handler = settings.runtime_error_handler or default_runtime_error_handler
-    local mod_api_path = settings.mod_api_path or "mod_api.json"
-    local mods_dir_path = settings.mods_dir_path or "mods"
-    local on_fn_time_limit_ms = settings.on_fn_time_limit_ms or 100
-    local packages = settings.packages or {}
+    local mod_api_path          = settings.mod_api_path          or "mod_api.json"
+    local mods_dir_path         = settings.mods_dir_path         or "mods"
+    local on_fn_time_limit_ms   = settings.on_fn_time_limit_ms   or 100
+    local packages              = settings.packages               or {}
 
     local mod_api_text = read(mod_api_path)
     local mod_api = json.decode(mod_api_text)
@@ -224,15 +203,13 @@ function grug.init(settings)
 
     assert_mod_api(mod_api)
 
-    local game_fns = {}
-
     return setmetatable({
         runtime_error_handler = runtime_error_handler,
-        mods_dir_path = mods_dir_path,
-        on_fn_time_limit_ms = on_fn_time_limit_ms,
-        mod_api = mod_api,
-        game_fns = game_fns,
-        next_id = 0,
-        fn_depth = 0
+        mods_dir_path         = mods_dir_path,
+        on_fn_time_limit_ms   = on_fn_time_limit_ms,
+        mod_api               = mod_api,
+        game_fns              = {},
+        next_id               = 0,
+        fn_depth              = 0,
     }, grug)
 end
