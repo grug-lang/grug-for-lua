@@ -92,7 +92,7 @@ function callbacks.compile_grug_file(state_ptr, file_path_, error_out_)
 
     file_id = #files + 1
     files[file_id] = file
-    return file
+    return ffi.cast("void*", file_id)
 end
 
 function callbacks.init_globals(state_ptr, file_id)
@@ -102,10 +102,32 @@ function callbacks.call_export_fn(state_ptr, file_id, fn_name_, args, args_len)
 end
 
 function callbacks.dump_file_to_json(state_ptr, input_grug_path_, output_json_path_)
+    local input_grug_path = ffi.string(input_grug_path_)
+    local output_json_path = ffi.string(output_json_path_)
+
+    assert(state)
+
+    if pcall(function()
+        state:dump_file_to_json(input_grug_path, output_json_path)
+    end) then
+        return false
+    end
+
     return true
 end
 
 function callbacks.generate_file_from_json(state_ptr, input_json_path_, output_grug_path_)
+    local input_json_path = ffi.string(input_json_path_)
+    local output_grug_path = ffi.string(output_grug_path_)
+
+    assert(state)
+
+    if pcall(function()
+        state:generate_file_from_json(input_json_path, output_grug_path)
+    end) then
+        return false
+    end
+
     return true
 end
 

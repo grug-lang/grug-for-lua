@@ -6,11 +6,11 @@ local MAX_F64 = 1.7976931348623157e308
 
 -- Expressions
 local function TrueExpr()
-    return { result = "bool" }
+    return { bool_val = true, result = "bool" }
 end
 
 local function FalseExpr()
-    return { result = "bool" }
+    return { bool_val = false, result = "bool" }
 end
 
 local function StringExpr(s)

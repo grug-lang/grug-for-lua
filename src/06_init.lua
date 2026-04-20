@@ -9,6 +9,13 @@ local function read(path)
     return data
 end
 
+local function write(path, text)
+    local file = assert(io.open(path, "w"))
+    local ok, err = file:write(text)
+    file:close()
+    assert(ok, err)
+end
+
 -- TODO: REMOVE!
 local function dump(tbl, indent)
     indent = indent or 0
@@ -94,6 +101,56 @@ function grug:compile_grug_file(grug_file_relative_path)
     local entity_type = get_file_entity_type(filename)
 
     TypePropagator.new(ast, mod, entity_type, self.mod_api):fill()
+
+    -- TODO: Fill
+    local global_variables = {}
+
+    local on_fns = {}
+    for _, stmt in ipairs(ast) do
+        if stmt.stmt_type == "OnFn" then
+            on_fns[stmt.fn_name] = stmt
+            stmt.fn_name = nil
+        end
+    end
+
+    -- TODO: Fill
+    local helper_fns = {}
+
+    -- TODO: Fill
+    local game_fn_return_types = {}
+
+    return {
+        relative_path = grug_file_relative_path,
+        mod = mod,
+        global_variables = global_variables,
+        on_fns = on_fns,
+        helper_fns = helper_fns,
+        game_fns = self.game_fns,
+        game_fn_return_types = game_fn_return_types,
+        state = self
+    }
+end
+
+function grug:dump_file_to_json(input_grug_path, output_json_path)
+    local grug_text = read(input_grug_path)
+
+    local tokens = tokenize(grug_text)
+
+    local ast = Parser.new(tokens):parse()
+
+    local json_text = ast_to_json_text(ast)
+
+    write(output_json_path, json_text)
+end
+
+function grug:generate_file_from_json(input_json_path, output_grug_path)
+    local json_text = read(input_json_path)
+
+    local ast = json.decode(json_text)
+
+    local grug_text = ast_to_grug(ast)
+
+    write(output_grug_path, grug_text)
 end
 
 local function assert_on_functions_sorted(entity_name, on_functions)
@@ -170,27 +227,13 @@ function grug.init(settings)
 
     assert_mod_api(mod_api)
 
-    if type(mod_api) ~= "table" then
-        return nil
-    end
-
-    if type(mod_api.entities) ~= "table" then
-        return nil
-    end
-    for k, v in pairs(mod_api.entities) do
-        if type(v) ~= "table" then
-            return nil
-        end
-    end
-
-    if type(mod_api.game_functions) ~= "table" then
-        return nil
-    end
+    local game_fns = {}
 
     return setmetatable({
         runtime_error_handler = runtime_error_handler,
         mods_dir_path = mods_dir_path,
         on_fn_time_limit_ms = on_fn_time_limit_ms,
-        mod_api = mod_api
+        mod_api = mod_api,
+        game_fns = game_fns
     }, grug)
 end
