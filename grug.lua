@@ -2401,14 +2401,14 @@ function GrugFile.new(
     state
 )
     return setmetatable({
-        relative_path = relative_path,
-        mod = mod,
-        global_variables = global_variables,
-        on_fns = on_fns,
-        helper_fns = helper_fns,
-        game_fns = game_fns,
+        relative_path        = relative_path,
+        mod                  = mod,
+        global_variables     = global_variables,
+        on_fns               = on_fns,
+        helper_fns           = helper_fns,
+        game_fns             = game_fns,
         game_fn_return_types = game_fn_return_types,
-        state = state
+        state                = state,
     }, GrugFile)
 end
 
