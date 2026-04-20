@@ -6,31 +6,50 @@ _GrugEntity = Entity
 local MAX_DEPTH = 100
 
 -- Control flow exception tokens used to mimic Python's exception-based control flow
-local BREAK = { type = "BREAK" }
+local BREAK    = { type = "BREAK" }
 local CONTINUE = { type = "CONTINUE" }
-local RETURN = { type = "RETURN" }
+local RETURN   = { type = "RETURN" }
 
 local unpack = unpack or table.unpack
 
+local BINARY_OPS = {
+    PLUS_TOKEN             = function(l, r) return l + r  end,
+    MINUS_TOKEN            = function(l, r) return l - r  end,
+    MULTIPLICATION_TOKEN   = function(l, r) return l * r  end,
+    DIVISION_TOKEN         = function(l, r) return l / r  end,
+    EQUALS_TOKEN           = function(l, r) return l == r end,
+    NOT_EQUALS_TOKEN       = function(l, r) return l ~= r end,
+    GREATER_OR_EQUAL_TOKEN = function(l, r) return l >= r end,
+    GREATER_TOKEN          = function(l, r) return l > r  end,
+    LESS_OR_EQUAL_TOKEN    = function(l, r) return l <= r end,
+    LESS_TOKEN             = function(l, r) return l < r  end,
+}
+
+local EXPECTED_TYPES = {
+    number   = "number",
+    bool     = "boolean",
+    string   = "string",
+    resource = "string",
+    entity   = "string",
+}
+
 function Entity.new(file)
     local self = setmetatable({
-        me_id = file.state.next_id,
-        file = file,
-        state = file.state,
-        game_fns = file.game_fns,
+        me_id                = file.state.next_id,
+        file                 = file,
+        state                = file.state,
+        game_fns             = file.game_fns,
         game_fn_return_types = file.game_fn_return_types,
         on_fn_time_limit_sec = file.state.on_fn_time_limit_ms / 1000,
-        local_variables = {},
-        on_fn_depth = 0,
-        global_variables = {},
-        fn_name = "",
-        start_time = 0,
+        local_variables      = {},
+        on_fn_depth          = 0,
+        global_variables     = {},
+        fn_name              = "",
+        start_time           = 0,
     }, Entity)
 
     file.state.next_id = file.state.next_id + 1
-
     self:_init_globals(file.global_variables)
-
     return self
 end
 
@@ -40,20 +59,16 @@ function Entity:_init_globals(global_variables)
 
     local old_fn_depth = self.state.fn_depth
     self.state.fn_depth = self.state.fn_depth + 1
-
     self.start_time = os.clock()
 
-    local success, err = pcall(function()
+    local ok, err = pcall(function()
         for _, g in ipairs(global_variables) do
             self.global_variables[g.name] = self:_run_expr(g.expr)
         end
     end)
 
     self.state.fn_depth = old_fn_depth
-
-    if not success then
-        error(err)
-    end
+    if not ok then error(err) end
 end
 
 -- Python's __getattr__ dynamic method logic translated to Lua's __index.
@@ -61,10 +76,7 @@ end
 function Entity:__index(key)
     local val = rawget(Entity, key)
     if val ~= nil then return val end
-
-    return function(...)
-        return self:_run_on_fn(key, ...)
-    end
+    return function(...) return self:_run_on_fn(key, ...) end
 end
 
 function Entity:_run_on_fn(on_fn_name, ...)
@@ -73,15 +85,14 @@ function Entity:_run_on_fn(on_fn_name, ...)
         error("The function '" .. on_fn_name .. "' is not defined by the file " .. self.file.relative_path)
     end
 
-    local args = {...}
+    local args = { ... }
     local parent_local_variables = self.local_variables
     self.local_variables = {}
-
     self.fn_name = on_fn_name
 
     -- Assign and verify argument types
     for i, argument in ipairs(on_fn.arguments) do
-        local arg = args[i]
+        local arg      = args[i]
         local expected = self:_get_expected_type(argument.type_name)
         if type(arg) ~= expected then
             error(string.format("Argument '%s' of %s() must be %s, got %s",
@@ -99,40 +110,33 @@ function Entity:_run_on_fn(on_fn_name, ...)
         self.start_time = os.clock()
     end
 
-    local status, err = pcall(function()
-        self:_run_statements(on_fn.body_statements)
-    end)
+    local ok, err = pcall(self._run_statements, self, on_fn.body_statements)
 
-    if not status then
-        if type(err) == "table" and err.type == "RETURN" then
+    -- Determine whether to re-raise *before* restoring state, since the check
+    -- depends on the current (pre-restore) fn_depth.
+    local should_reraise = false
+    if not ok then
+        local err_type = type(err) == "table" and err.type
+        if err_type == "RETURN" then
             -- On-functions do not return values to the host in Grug
-        elseif type(err) == "table" and (err.type == "STACK_OVERFLOW" or err.type == "TIME_LIMIT_EXCEEDED" or err.type == "RERAISED_GAME_FN_ERROR") then
-            if self.state.fn_depth > 1 then
-                self.state.fn_depth = old_fn_depth
-                self.on_fn_depth = old_on_fn_depth
-                self.local_variables = parent_local_variables
-                error(err)
-            end
+        elseif err_type == "STACK_OVERFLOW"
+            or err_type == "TIME_LIMIT_EXCEEDED"
+            or err_type == "RERAISED_GAME_FN_ERROR" then
+            should_reraise = self.state.fn_depth > 1
         else
-            self.state.fn_depth = old_fn_depth
-            self.on_fn_depth = old_on_fn_depth
-            self.local_variables = parent_local_variables
-            error(err)
+            should_reraise = true
         end
     end
 
-    self.state.fn_depth = old_fn_depth
-    self.on_fn_depth = old_on_fn_depth
+    self.state.fn_depth  = old_fn_depth
+    self.on_fn_depth     = old_on_fn_depth
     self.local_variables = parent_local_variables
+
+    if should_reraise then error(err) end
 end
 
 function Entity:_get_expected_type(type_name)
-    if type_name == "number" then return "number" end
-    if type_name == "bool" then return "boolean" end
-    if type_name == "string" or type_name == "resource" or type_name == "entity" then
-        return "string"
-    end
-    return "table"
+    return EXPECTED_TYPES[type_name] or "table"
 end
 
 function Entity:_run_statements(statements)
@@ -217,27 +221,16 @@ function Entity:_run_unary_expr(unary_expr)
     local val = self:_run_expr(unary_expr.expr)
     if op == "MINUS_TOKEN" then
         return -val
-    elseif op == "NOT_TOKEN" then
+    else
+        assert(op == "NOT_TOKEN")
         return not val
     end
 end
 
 function Entity:_run_binary_expr(binary_expr)
-    local left = self:_run_expr(binary_expr.left_expr)
+    local left  = self:_run_expr(binary_expr.left_expr)
     local right = self:_run_expr(binary_expr.right_expr)
-    local op = binary_expr.operator
-
-    if op == "PLUS_TOKEN" then return left + right
-    elseif op == "MINUS_TOKEN" then return left - right
-    elseif op == "MULTIPLICATION_TOKEN" then return left * right
-    elseif op == "DIVISION_TOKEN" then return left / right
-    elseif op == "EQUALS_TOKEN" then return left == right
-    elseif op == "NOT_EQUALS_TOKEN" then return left ~= right
-    elseif op == "GREATER_OR_EQUAL_TOKEN" then return left >= right
-    elseif op == "GREATER_TOKEN" then return left > right
-    elseif op == "LESS_OR_EQUAL_TOKEN" then return left <= right
-    elseif op == "LESS_TOKEN" then return left < right
-    end
+    return BINARY_OPS[binary_expr.operator](left, right)
 end
 
 function Entity:_run_logical_expr(logical_expr)
@@ -278,13 +271,10 @@ function Entity:_run_return_statement(statement)
 end
 
 function Entity:_run_while_statement(statement)
-    local success, err = pcall(function()
+    local ok, err = pcall(function()
         while self:_run_expr(statement.condition) do
-            local loop_success, loop_err = pcall(function()
-                self:_run_statements(statement.body_statements)
-            end)
-
-            if not loop_success then
+            local loop_ok, loop_err = pcall(self._run_statements, self, statement.body_statements)
+            if not loop_ok then
                 if type(loop_err) == "table" and loop_err.type == "CONTINUE" then
                     -- Catch continue and proceed to check time limit / next iteration
                 else
@@ -295,10 +285,8 @@ function Entity:_run_while_statement(statement)
         end
     end)
 
-    if not success then
-        if type(err) == "table" and err.type == "BREAK" then
-            return
-        end
+    if not ok then
+        if type(err) == "table" and err.type == "BREAK" then return end
         error(err)
     end
 end
@@ -317,7 +305,7 @@ end
 
 function Entity:_run_helper_fn(name, ...)
     local helper_fn = self.file.helper_fns[name]
-    local args = {...}
+    local args = { ... }
     local parent_local_variables = self.local_variables
     self.local_variables = {}
 
@@ -327,6 +315,7 @@ function Entity:_run_helper_fn(name, ...)
 
     local old_fn_depth = self.state.fn_depth
     self.state.fn_depth = self.state.fn_depth + 1
+
     if self.state.fn_depth > MAX_DEPTH then
         self.state.runtime_error_handler(
             "Stack overflow, so check for accidental infinite recursion",
@@ -339,34 +328,27 @@ function Entity:_run_helper_fn(name, ...)
 
     self:_check_time_limit_exceeded()
 
-    local result
-    local status, err = pcall(function()
-        self:_run_statements(helper_fn.body_statements)
-    end)
+    local ok, err = pcall(self._run_statements, self, helper_fn.body_statements)
 
-    self.state.fn_depth = old_fn_depth
+    self.state.fn_depth  = old_fn_depth
     self.local_variables = parent_local_variables
 
-    if not status then
+    if not ok then
         if type(err) == "table" and err.type == "RETURN" then
             return err.value
         end
         error(err)
     end
-
-    return result
 end
 
 function Entity:_run_game_fn(name, ...)
     local game_fn = self.game_fns[name]
     assert(game_fn)
 
-    local args = {...}
-
     local parent_fn_name = self.fn_name
-    local success, result = pcall(game_fn, self.state, unpack(args))
+    local ok, result = pcall(game_fn, self.state, ...)
 
-    if not success then
+    if not ok then
         if result.type == "GAME_FN_ERROR" then
             self.state.runtime_error_handler(
                 result.reason,
