@@ -37,6 +37,52 @@ ffi.cdef[[
     void grug_tests_run(const char *tests_dir_path, const char *mod_api_path, grug_state_vtable vtable, const char *whitelisted_test);
 ]]
 
+local game_fn_names = {
+    "nothing",
+    "magic",
+    "initialize",
+    "initialize_bool",
+    "identity",
+    "max",
+    "say",
+    "sin",
+    "cos",
+    "mega",
+    "get_false",
+    "set_is_happy",
+    "mega_f32",
+    "mega_i32",
+    "draw",
+    "blocked_alrm",
+    "spawn",
+    "spawn_d",
+    "has_resource",
+    "has_entity",
+    "has_string",
+    "get_opponent",
+    "get_os",
+    "set_d",
+    "set_opponent",
+    "motherload",
+    "motherload_subless",
+    "offset_32_bit_f32",
+    "offset_32_bit_i32",
+    "offset_32_bit_string",
+    "print_csv",
+    "talk",
+    "get_position",
+    "set_position",
+    "cause_game_fn_error",
+    "call_on_b_fn",
+    "store",
+    "retrieve",
+    "box_number",
+}
+
+for _, name in ipairs(game_fn_names) do
+    ffi.cdef("uint64_t game_fn_" .. name .. "(void* state_ptr, GrugValueUnion* args);")
+end
+
 local grug_lib = ffi.load(grug_tests_path .. "/build/libtests.so")
 
 local callbacks = {}
@@ -46,6 +92,10 @@ local state = nil
 local files = {} -- Ensures compiled files are not prematurely GCed.
 
 local last_error = nil
+
+local current_entity = nil
+
+local grug_runtime_err = nil
 
 function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
     local mod_api_path = ffi.string(mod_api_path_)
@@ -64,6 +114,8 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
     end
 
     state = new_state
+
+    register_game_fns()
 
     return ffi.cast("void*", 42)
 end
@@ -95,10 +147,101 @@ function callbacks.compile_grug_file(state_ptr, file_path_, error_out_)
     return ffi.cast("void*", file_id)
 end
 
-function callbacks.init_globals(state_ptr, file_id)
+function callbacks.init_globals(state_ptr, file_id_)
+    local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
+
+    assert(state)
+    state.next_id = 42
+
+    local grug_file = files[file_id]
+    assert(grug_file)
+
+    current_entity = grug_file:create_entity()
 end
 
-function callbacks.call_export_fn(state_ptr, file_id, fn_name_, args, args_len)
+-- TODO: REMOVE!
+local function dump(tbl, indent)
+    indent = indent or 0
+    local prefix = string.rep("  ", indent)
+
+    if type(tbl) ~= "table" then
+        print(prefix .. tostring(tbl))
+        return
+    end
+
+    print(prefix .. "{")
+    for k, v in pairs(tbl) do
+        io.write(prefix .. "  [" .. tostring(k) .. "] = ")
+        if type(v) == "table" then
+            dump(v, indent + 1)
+        else
+            print(tostring(v))
+        end
+    end
+    print(prefix .. "}")
+end
+
+-- TODO: Use this in all 5 spots that call traceback.print_exc() in Python
+local function print_traceback(err)
+    io.stderr:write(debug.traceback(tostring(err)) .. "\n")
+end
+
+local function c_to_lua_value(value, typ)
+    -- TODO: Check that commenting out any of these branches causes tests to fail
+    if typ == "number" then
+        return tonumber(value._number)
+    elseif typ == "bool" then
+        return value._bool -- TODO: Should this use tonumber()?
+        -- TODO: Gemini suggested this:
+        -- return value._bool ~= 0 and value._bool ~= false
+    elseif typ == "string" then
+        return ffi.string(value._string)
+    end
+    return tonumber(value._id)
+end
+
+function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_)
+    local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
+    local fn_name = ffi.string(fn_name_)
+    local args_len = tonumber(ffi.cast("uintptr_t", args_len_))
+
+    local grug_file = files[file_id]
+    assert(grug_file)
+    assert(current_entity)
+
+    local on_fn_decl = grug_file.on_fns[fn_name]
+    assert(on_fn_decl)
+
+    assert(#on_fn_decl.arguments == args_len)
+
+    -- Convert C arguments to Lua values
+    local lua_args = {}
+    for i = 0, args_len - 1 do
+        local argument_decl = on_fn_decl.arguments[i + 1]
+        local c_val = args[i]
+        table.insert(lua_args, c_to_lua_value(c_val, argument_decl.type_name))
+    end
+
+    -- Execute with error handling
+    -- We use pcall because propagating Lua errors through a C boundary (FFI callback)
+    -- is undefined behavior/unstable in many environments.
+    grug_runtime_err = nil
+    local status, err = pcall(function()
+        current_entity:_run_on_fn(fn_name, unpack(lua_args))
+    end)
+
+    if not status then
+        -- Exception catching
+        if type(err) == "table" and (
+            err.type == "TIME_LIMIT_EXCEEDED" or 
+            err.type == "STACK_OVERFLOW" or 
+            err.type == "RERAISED_GAME_FN_ERROR"
+        ) then
+            grug_runtime_err = err
+        else
+            print_traceback(err)
+        end
+    end
 end
 
 function callbacks.dump_file_to_json(state_ptr, input_grug_path_, output_json_path_)
@@ -135,6 +278,44 @@ function callbacks.game_fn_error(state_ptr, message_)
     local message = ffi.string(message_)
 
     print("Game function error: " .. ffi.string(message)) -- TODO: REMOVE!
+end
+
+function register_game_fns()
+    for _, name in ipairs(game_fn_names) do
+        local c_fn = grug_lib["game_fn_" .. name]
+        local game_fn_entry = state.mod_api.game_functions[name]
+        local return_type = game_fn_entry and game_fn_entry.return_type
+
+        local fn = function(st, ...)
+            local args = {...}
+            local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
+            for i, v in ipairs(args) do
+                local t = type(v)
+                if t == "number" then
+                    c_args[i-1]._number = v
+                elseif t == "boolean" then
+                    c_args[i-1]._bool = v
+                elseif t == "string" then
+                    local b = ffi.new("char[?]", #v + 1)
+                    ffi.copy(b, v)
+                    c_args[i-1]._string = b
+                else
+                    c_args[i-1]._id = v
+                end
+            end
+            local result_u64 = c_fn(nil, c_args)
+            if grug_runtime_err ~= nil then
+                error(grug_runtime_err)
+            end
+            local tmp = ffi.new("uint64_t[1]")
+            tmp[0] = result_u64
+            local union = ffi.new("GrugValueUnion")
+            ffi.copy(union, tmp, ffi.sizeof("GrugValueUnion"))
+            return c_to_lua_value(union, return_type)
+        end
+
+        state:_register_game_fn(name, fn)
+    end
 end
 
 local vtable = ffi.new("grug_state_vtable", {

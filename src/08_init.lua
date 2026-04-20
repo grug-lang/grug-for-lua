@@ -102,8 +102,12 @@ function grug:compile_grug_file(grug_file_relative_path)
 
     TypePropagator.new(ast, mod, entity_type, self.mod_api):fill()
 
-    -- TODO: Fill
     local global_variables = {}
+    for _, stmt in ipairs(ast) do
+        if stmt.stmt_type == "VariableStatement" then
+            table.insert(global_variables, stmt)
+        end
+    end
 
     local on_fns = {}
     for _, stmt in ipairs(ast) do
@@ -113,22 +117,29 @@ function grug:compile_grug_file(grug_file_relative_path)
         end
     end
 
-    -- TODO: Fill
     local helper_fns = {}
+    for _, stmt in ipairs(ast) do
+        if stmt.stmt_type == "HelperFn" then
+            helper_fns[stmt.fn_name] = stmt
+            stmt.fn_name = nil
+        end
+    end
 
-    -- TODO: Fill
     local game_fn_return_types = {}
+    for name, decl in pairs(self.mod_api.game_functions) do
+        game_fn_return_types[name] = decl.return_type
+    end
 
-    return {
-        relative_path = grug_file_relative_path,
-        mod = mod,
-        global_variables = global_variables,
-        on_fns = on_fns,
-        helper_fns = helper_fns,
-        game_fns = self.game_fns,
-        game_fn_return_types = game_fn_return_types,
-        state = self
-    }
+    return GrugFile.new(
+        grug_file_relative_path,
+        mod,
+        global_variables,
+        on_fns,
+        helper_fns,
+        self.game_fns,
+        game_fn_return_types,
+        self
+    )
 end
 
 function grug:dump_file_to_json(input_grug_path, output_json_path)
@@ -151,6 +162,10 @@ function grug:generate_file_from_json(input_json_path, output_grug_path)
     local grug_text = ast_to_grug(ast)
 
     write(output_grug_path, grug_text)
+end
+
+function grug:_register_game_fn(name, fn)
+    self.game_fns[name] = fn
 end
 
 local function assert_on_functions_sorted(entity_name, on_functions)
@@ -211,6 +226,10 @@ local function assert_mod_api(mod_api)
     end
 end
 
+local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path)
+    print("grug runtime error in " .. on_fn_name .. "(): " .. reason .. ", in " .. on_fn_path)
+end
+
 function grug.init(settings)
     local runtime_error_handler = settings.runtime_error_handler or default_runtime_error_handler
     local mod_api_path = settings.mod_api_path or "mod_api.json"
@@ -234,6 +253,8 @@ function grug.init(settings)
         mods_dir_path = mods_dir_path,
         on_fn_time_limit_ms = on_fn_time_limit_ms,
         mod_api = mod_api,
-        game_fns = game_fns
+        game_fns = game_fns,
+        next_id = 0,
+        fn_depth = 0
     }, grug)
 end
