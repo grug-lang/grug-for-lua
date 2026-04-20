@@ -7,12 +7,11 @@ if whitelisted_test == "" then whitelisted_test = nil end
 
 local grug_tests_path = arg[2] or "../grug-tests"
 
--- TODO: Use this in all 5 spots that call traceback.print_exc() in Python
 local function print_traceback(err)
     io.stderr:write(debug.traceback(tostring(err)) .. "\n")
 end
 
--- TODO: REMOVE!
+-- Use to print tables when debugging
 local function dump(tbl, indent)
     indent = indent or 0
     local prefix = string.rep("  ", indent)
@@ -152,7 +151,8 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
         })
     end)
 
-    if (not status) or (new_state == nil) then
+    if not status then
+        print_traceback(err)
         return nil
     end
 
@@ -277,13 +277,16 @@ function callbacks.dump_file_to_json(state_ptr, input_grug_path_, output_json_pa
 
     assert(state)
 
-    if pcall(function()
+    local status, err = pcall(function()
         state:dump_file_to_json(input_grug_path, output_json_path)
-    end) then
-        return false
+    end)
+
+    if not status then
+        print_traceback(err)
+        return true
     end
 
-    return true
+    return false
 end
 
 function callbacks.generate_file_from_json(state_ptr, input_json_path_, output_grug_path_)
@@ -292,13 +295,16 @@ function callbacks.generate_file_from_json(state_ptr, input_json_path_, output_g
 
     assert(state)
 
-    if pcall(function()
+    local status, err = pcall(function()
         state:generate_file_from_json(input_json_path, output_grug_path)
-    end) then
-        return false
+    end)
+
+    if not status then
+        print_traceback(err)
+        return true
     end
 
-    return true
+    return false
 end
 
 function _GrugEntity:_run_game_fn(name, ...)
