@@ -1,10 +1,8 @@
 import os
 
+
 def main():
-    files = [
-        f for f in os.listdir("src")
-        if os.path.isfile(os.path.join("src", f))
-    ]
+    files = [f for f in os.listdir("src") if os.path.isfile(os.path.join("src", f))]
 
     files.sort()
 

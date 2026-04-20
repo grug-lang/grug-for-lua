@@ -13,3 +13,16 @@ Clone [grug-tests](https://github.com/grug-lang/grug-tests) next to this reposit
 ```sh
 python amalgamate.py && luajit tests.lua
 ```
+
+## Contributing
+
+If you edit Python files like `amalgamate.py`, note that the CI rejects unformatted Python code and type errors.
+
+To catch these automatically before pushing, set up the pre-commit hook:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Black and Pyright will then run on every `git commit`. You can also run them manually at any time with `pre-commit run --all-files`.
