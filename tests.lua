@@ -2,7 +2,10 @@ local grug = require("grug")
 
 local ffi = require("ffi")
 
-local grug_tests_path = arg[1] or "../grug-tests"
+local whitelisted_test = arg[1]
+if whitelisted_test == "" then whitelisted_test = nil end
+
+local grug_tests_path = arg[2] or "../grug-tests"
 
 local function read(path)
     local file = assert(io.open(path, "r"))
@@ -48,13 +51,18 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
     local mod_api_path = ffi.string(mod_api_path_)
     local mods_dir_path = ffi.string(mods_dir_path_)
 
-    new_state = grug.init({
-        mod_api_path=mod_api_path,
-        mods_dir_path=mods_dir_path
-    })
-    if new_state == nil then
+    local new_state
+    local status, err = pcall(function()
+        new_state = grug.init({
+            mod_api_path=mod_api_path,
+            mods_dir_path=mods_dir_path
+        })
+    end)
+
+    if (not status) or (new_state == nil) then
         return nil
     end
+
     state = new_state
 
     return ffi.cast("void*", 42)
@@ -122,5 +130,5 @@ grug_lib.grug_tests_run(
     grug_tests_path .. "/tests",
     grug_tests_path .. "/mod_api.json",
     vtable,
-    nil -- whitelisted_test
+    whitelisted_test
 )

@@ -96,8 +96,62 @@ function grug:compile_grug_file(grug_file_relative_path)
     TypePropagator.new(ast, mod, entity_type, self.mod_api):fill()
 end
 
-local function assert_mod_api() -- TODO: Add missing params
-    -- TODO: Implement
+local function assert_on_functions_sorted(entity_name, on_functions)
+    local keys = {}
+    for _, fn in ipairs(on_functions) do
+        table.insert(keys, fn.name)
+    end
+
+    local sorted_keys = {}
+    for _, k in ipairs(keys) do
+        table.insert(sorted_keys, k)
+    end
+    table.sort(sorted_keys)
+
+    for i, actual in ipairs(keys) do
+        local expected = sorted_keys[i]
+        if actual ~= expected then
+            error(string.format(
+                "Error: on_functions for entity '%s' must be sorted alphabetically in mod_api.json, " ..
+                "so '%s' must come before '%s'",
+                entity_name, expected, actual
+            ))
+        end
+    end
+end
+
+local function assert_mod_api(mod_api)
+    local entities = mod_api.entities
+    if type(entities) ~= "table" then
+        error("Error: 'entities' must be a JSON object")
+    end
+
+    for entity_name, entity in pairs(entities) do
+        if type(entity) ~= "table" then
+            error(string.format("Error: entity '%s' must be a JSON object", entity_name))
+        end
+
+        local on_functions = entity.on_functions
+        if on_functions == nil then
+            goto continue
+        end
+
+        if type(on_functions) ~= "table" then
+            error(string.format(
+                "Error: 'on_functions' for entity '%s' must be a JSON array",
+                entity_name
+            ))
+        end
+
+        assert_on_functions_sorted(entity_name, on_functions)
+
+        ::continue::
+    end
+
+    local game_functions = mod_api.game_functions
+    if type(game_functions) ~= "table" then
+        error("Error: 'game_functions' must be a JSON object")
+    end
 end
 
 function grug.init(settings)
@@ -109,7 +163,12 @@ function grug.init(settings)
 
     local mod_api_text = read(mod_api_path)
     local mod_api = json.decode(mod_api_text)
-    assert_mod_api()
+
+    if type(mod_api) ~= "table" then
+        error("Error: mod API JSON root must be an object")
+    end
+
+    assert_mod_api(mod_api)
 
     if type(mod_api) ~= "table" then
         return nil

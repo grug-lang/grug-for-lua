@@ -498,8 +498,13 @@ function TypePropagator:fill_helper_fns()
 end
 
 function TypePropagator:fill_on_fns()
+    local expected_functions_map = {}
+    for _, expected_fn in ipairs(self.entity_on_functions) do
+        expected_functions_map[expected_fn.name] = expected_fn
+    end
+
     for fn_name, _ in pairs(self.on_fns) do
-        if not self.entity_on_functions[fn_name] then
+        if not expected_functions_map[fn_name] then
             error("The function '" .. fn_name .. "' was not declared by entity '" .. self.file_entity_type .. "' in mod_api.json")
         end
     end
@@ -520,7 +525,9 @@ function TypePropagator:fill_on_fns()
 
     local previous_on_fn_index = 0
 
-    for expected_fn_name, expected_fn in pairs(self.entity_on_functions) do
+    for _, expected_fn in ipairs(self.entity_on_functions) do
+        local expected_fn_name = expected_fn.name
+
         if self.on_fns[expected_fn_name] then
             local fn = self.on_fns[expected_fn_name]
 

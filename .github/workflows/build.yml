@@ -26,4 +26,4 @@ jobs:
           cmake --build build
 
       - name: Run tests
-        run: luajit tests.lua ./grug-tests
+        run: luajit tests.lua "" ./grug-tests
