@@ -16,6 +16,10 @@ local function write(path, text)
 	assert(ok, err)
 end
 
+function grug:update()
+	-- TODO: Implement hot reloading
+end
+
 local function check_custom_id_is_pascal(type_name)
 	-- Validate that a custom ID type name is in PascalCase
 
@@ -134,7 +138,7 @@ function grug:generate_file_from_json(input_json_path, output_grug_path)
 	write(output_grug_path, grug_text)
 end
 
-function grug:_register_game_fn(name, fn)
+function grug:register_game_fn(name, fn)
 	self.game_fns[name] = fn
 end
 
@@ -195,6 +199,8 @@ local function default_runtime_error_handler(reason, grug_runtime_error_type, on
 end
 
 function grug.init(settings)
+	settings = settings or {}
+
 	local runtime_error_handler = settings.runtime_error_handler or default_runtime_error_handler
 	local mod_api_path = settings.mod_api_path or "mod_api.json"
 	local mods_dir_path = settings.mods_dir_path or "mods"

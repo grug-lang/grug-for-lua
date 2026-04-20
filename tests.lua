@@ -314,7 +314,7 @@ function register_game_fns()
 		local c_fn = grug_lib["game_fn_" .. name]
 		local return_type = state.mod_api.game_functions[name].return_type
 
-		state:_register_game_fn(name, function(st, ...)
+		state:register_game_fn(name, function(st, ...)
 			local args = { ... }
 			local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
 
