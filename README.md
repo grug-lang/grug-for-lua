@@ -1,34 +1,37 @@
 # grug for Lua
 
-This is a Lua 5.1 implementation of [grug](https://github.com/grug-lang/grug).
+A Lua 5.1 implementation of [grug](https://github.com/grug-lang/grug).
 
 ## Example
 
-Run `example.lua` like so:
+Run the minimal example:
+
 ```sh
 cd examples/minimal && lua example.lua
-```
+````
 
-Here is `example.lua`:
+### `example.lua`
+
 ```lua
 package.path = package.path .. ";../../?.lua"
-grug = require("grug")
+local grug = require("grug")
 
-state = grug.init()
+local state = grug.init()
 
 state:register_game_fn("print_string", function(state, str)
 	print(str)
 end)
 
-file = state:compile_grug_file("animals/labrador-Dog.grug")
-dog1 = file:create_entity()
-dog2 = file:create_entity()
+local file = state:compile_grug_file("animals/labrador-Dog.grug")
+local dog1 = file:create_entity()
+local dog2 = file:create_entity()
 
 dog1:on_bark("woof")
 dog2:on_bark("arf")
 ```
 
-Here is the `animals/labrador-Dog.grug` file it executes:
+### `animals/labrador-Dog.grug`
+
 ```py
 on_bark(sound: string) {
     print_string(sound)
@@ -40,7 +43,8 @@ on_bark(sound: string) {
 }
 ```
 
-The example outputs:
+### Output
+
 ```
 woof
 arf
@@ -49,7 +53,7 @@ arf
 
 ## Dependencies
 
-- Lua 5.1 or newer
+* Lua 5.1 or newer ([LuaJIT](https://luajit.org/index.html) recommended)
 
 ## Running tests
 
@@ -59,28 +63,38 @@ Clone [grug-tests](https://github.com/grug-lang/grug-tests) next to this reposit
 python amalgamate.py && luajit tests.lua
 ```
 
-This regenerates `grug.lua` and runs the test suite.
+This will:
+
+* regenerate `grug.lua`
+* run the full test suite
 
 ## CI behavior
 
 The CI pipeline automatically:
 
 * Regenerates `grug.lua` via `amalgamate.py`
-* Verifies no uncommitted changes exist (`git diff --exit-code`)
+* Ensures no uncommitted changes exist (`git diff --exit-code`)
 * Runs the full test suite against `grug-tests`
+* Executes the minimal Lua example as an integration test
 
 ## Contributing
 
-If you edit Python or Lua files, note that CI rejects unformatted code, type errors, and stale generated output.
+If you modify Python or Lua source files, note that CI enforces:
 
-To catch issues locally before pushing, install pre-commit hooks:
+* formatting (Black, StyLua)
+* type checking (Pyright)
+* up-to-date generated output
+
+### Pre-commit hooks (recommended)
+
+Install local checks before pushing:
 
 ```bash
 pip install pre-commit
 pre-commit install
 ```
 
-Black, Pyright, and StyLua will then run on every commit. You can also run them manually:
+Run manually:
 
 ```bash
 pre-commit run --all-files
