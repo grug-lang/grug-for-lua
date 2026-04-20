@@ -25,10 +25,16 @@ jobs:
           cmake -S . -B build
           cmake --build build
 
+      - name: Generate amalgamation
+        run: python amalgamate.py
+
+      - name: Ensure amalgamation is up-to-date
+        run: git diff --exit-code
+
       - name: Run tests
         run: luajit tests.lua "" ./grug-tests
 
-lint:
+  lint:
     runs-on: ubuntu-latest
 
     steps:

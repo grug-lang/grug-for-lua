@@ -8,21 +8,35 @@ This is a Lua 5.1 implementation of [grug](https://github.com/grug-lang/grug).
 
 ## Running tests
 
-Clone [grug-tests](https://github.com/grug-lang/grug-tests) next to this repository and build it, and then run this [luajit](https://luajit.org/index.html) command in grug-for-lua:
+Clone [grug-tests](https://github.com/grug-lang/grug-tests) next to this repository and build it, then run:
 
 ```sh
 python amalgamate.py && luajit tests.lua
 ```
 
+This regenerates `grug.lua` and runs the test suite.
+
+## CI behavior
+
+The CI pipeline automatically:
+
+* Regenerates `grug.lua` via `amalgamate.py`
+* Verifies no uncommitted changes exist (`git diff --exit-code`)
+* Runs the full test suite against `grug-tests`
+
 ## Contributing
 
-If you edit Python files like `amalgamate.py`, note that the CI rejects unformatted Python code and type errors.
+If you edit Python or Lua files, note that CI rejects unformatted code, type errors, and stale generated output.
 
-To catch these automatically before pushing, set up the pre-commit hook:
+To catch issues locally before pushing, install pre-commit hooks:
 
 ```bash
 pip install pre-commit
 pre-commit install
 ```
 
-Black and Pyright will then run on every `git commit`. You can also run them manually at any time with `pre-commit run --all-files`.
+Black, Pyright, and StyLua will then run on every commit. You can also run them manually:
+
+```bash
+pre-commit run --all-files
+```
