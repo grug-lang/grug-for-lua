@@ -2504,7 +2504,7 @@ function Entity:_init_globals(global_variables)
 end
 
 -- Python's __getattr__ dynamic method logic translated to Lua's __index.
--- This allows calling on_ functions defined in the grug file (e.g., dog.spawn()).
+-- This allows calling on_ functions defined in the grug file (e.g., dog:spawn()).
 function Entity:__index(key)
 	local val = rawget(Entity, key)
 	if val ~= nil then
