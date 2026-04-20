@@ -1,35 +1,46 @@
+local function map_list(list, fn)
+    local result = {}
+    for _, v in ipairs(list or {}) do
+        table.insert(result, fn(v))
+    end
+    return (#result > 0) and result or nil
+end
+
+-- ======================
+-- Expression Serialization
+-- ======================
 local function serialize_expr(expr)
     local result = {}
-    
-    if expr.bool_val == true then
-        result.type = "TRUE_EXPR"
-    elseif expr.bool_val == false then
-        result.type = "FALSE_EXPR"
+
+    if expr.bool_val ~= nil then
+        result.type = expr.bool_val and "TRUE_EXPR" or "FALSE_EXPR"
+
     elseif expr.value ~= nil then
         result.type = "NUMBER_EXPR"
         result.value = expr.string
+
     elseif expr.string ~= nil then
         local res_type = (type(expr.result) == "table") and expr.result.type_name or expr.result
-        if res_type == "string" then
-            result.type = "STRING_EXPR"
-        elseif res_type == "resource" then
-            result.type = "RESOURCE_EXPR"
-        elseif res_type == "entity" then
-            result.type = "ENTITY_EXPR"
-        else
-            result.type = "STRING_EXPR"
-        end
+
+        local type_map = {
+            string = "STRING_EXPR",
+            resource = "RESOURCE_EXPR",
+            entity = "ENTITY_EXPR"
+        }
+
+        result.type = type_map[res_type] or "STRING_EXPR"
         result.str = expr.string
+
     elseif expr.name ~= nil and not expr.fn_name then
         result.type = "IDENTIFIER_EXPR"
         result.str = expr.name
+
     elseif expr.operator ~= nil then
-        if expr.left_expr ~= nil then
-            if expr.operator == "AND_TOKEN" or expr.operator == "OR_TOKEN" then
-                result.type = "LOGICAL_EXPR"
-            else
-                result.type = "BINARY_EXPR"
-            end
+        if expr.left_expr then
+            result.type = (expr.operator == "AND_TOKEN" or expr.operator == "OR_TOKEN")
+                and "LOGICAL_EXPR"
+                or "BINARY_EXPR"
+
             result.left_expr = serialize_expr(expr.left_expr)
             result.operator = expr.operator
             result.right_expr = serialize_expr(expr.right_expr)
@@ -38,191 +49,160 @@ local function serialize_expr(expr)
             result.operator = expr.operator
             result.expr = serialize_expr(expr.expr)
         end
+
     elseif expr.fn_name ~= nil then
         result.type = "CALL_EXPR"
         result.name = expr.fn_name
-        if expr.arguments and #expr.arguments > 0 then
-            result.arguments = {}
-            for _, arg in ipairs(expr.arguments) do
-                table.insert(result.arguments, serialize_expr(arg))
-            end
-        end
+        result.arguments = map_list(expr.arguments, serialize_expr)
+
     elseif expr.expr ~= nil then
         result.type = "PARENTHESIZED_EXPR"
         result.expr = serialize_expr(expr.expr)
     end
-    
+
     return result
 end
 
+-- ======================
+-- Statement Serialization
+-- ======================
 local function serialize_statement(stmt)
     local result = {}
-    local stmt_type = stmt.stmt_type
+    local t = stmt.stmt_type
 
-    if stmt_type == "VariableStatement" then
+    if t == "VariableStatement" then
         result.type = "VARIABLE_STATEMENT"
         result.name = stmt.name
         if stmt.type then
             result.variable_type = stmt.type_name
         end
         result.assignment = serialize_expr(stmt.expr)
-    elseif stmt_type == "CallStatement" then
+
+    elseif t == "CallStatement" then
         result.type = "CALL_STATEMENT"
         result.name = stmt.expr.fn_name
-        if stmt.expr.arguments and #stmt.expr.arguments > 0 then
-            result.arguments = {}
-            for _, arg in ipairs(stmt.expr.arguments) do
-                table.insert(result.arguments, serialize_expr(arg))
-            end
-        end
-    elseif stmt_type == "IfStatement" then
+        result.arguments = map_list(stmt.expr.arguments, serialize_expr)
+
+    elseif t == "IfStatement" then
         result.type = "IF_STATEMENT"
         result.condition = serialize_expr(stmt.condition)
-        if stmt.if_body and #stmt.if_body > 0 then
-            result.if_statements = {}
-            for _, s in ipairs(stmt.if_body) do
-                table.insert(result.if_statements, serialize_statement(s))
-            end
-        end
-        if stmt.else_body and #stmt.else_body > 0 then
-            result.else_statements = {}
-            for _, s in ipairs(stmt.else_body) do
-                table.insert(result.else_statements, serialize_statement(s))
-            end
-        end
-    elseif stmt_type == "ReturnStatement" then
+        result.if_statements = map_list(stmt.if_body, serialize_statement)
+        result.else_statements = map_list(stmt.else_body, serialize_statement)
+
+    elseif t == "ReturnStatement" then
         result.type = "RETURN_STATEMENT"
         if stmt.value then
             result.expr = serialize_expr(stmt.value)
         end
-    elseif stmt_type == "WhileStatement" then
+
+    elseif t == "WhileStatement" then
         result.type = "WHILE_STATEMENT"
         result.condition = serialize_expr(stmt.condition)
-        result.statements = {}
-        if stmt.body_statements then
-            for _, s in ipairs(stmt.body_statements) do
-                table.insert(result.statements, serialize_statement(s))
-            end
-        end
-    elseif stmt_type == "CommentStatement" then
+        result.statements = map_list(stmt.body_statements, serialize_statement) or {}
+
+    elseif t == "CommentStatement" then
         result.type = "COMMENT_STATEMENT"
         result.comment = stmt.string
-    elseif stmt_type == "BreakStatement" then
+
+    elseif t == "BreakStatement" then
         result.type = "BREAK_STATEMENT"
-    elseif stmt_type == "ContinueStatement" then
+
+    elseif t == "ContinueStatement" then
         result.type = "CONTINUE_STATEMENT"
-    elseif stmt_type == "EmptyLineStatement" then
+
+    elseif t == "EmptyLineStatement" then
         result.type = "EMPTY_LINE_STATEMENT"
     end
 
     return result
 end
 
+-- ======================
+-- Global Serialization
+-- ======================
 local function serialize_arguments(arguments)
-    local result = {}
-    for _, arg in ipairs(arguments) do
-        table.insert(result, { name = arg.name, type = arg.type_name })
-    end
-    return result
+    return map_list(arguments, function(arg)
+        return { name = arg.name, type = arg.type_name }
+    end)
 end
 
 local function serialize_global_statement(stmt)
     local result = {}
-    local stmt_type = stmt.stmt_type
+    local t = stmt.stmt_type
 
-    if stmt_type == "OnFn" then
-        result.type = "GLOBAL_ON_FN"
+    if t == "OnFn" or t == "HelperFn" then
+        result.type = (t == "OnFn") and "GLOBAL_ON_FN" or "GLOBAL_HELPER_FN"
         result.name = stmt.fn_name
-        if stmt.arguments and #stmt.arguments > 0 then
-            result.arguments = serialize_arguments(stmt.arguments)
-        end
-        result.statements = {}
-        if stmt.body_statements then
-            for _, s in ipairs(stmt.body_statements) do
-                table.insert(result.statements, serialize_statement(s))
-            end
-        end
-    elseif stmt_type == "HelperFn" then
-        result.type = "GLOBAL_HELPER_FN"
-        result.name = stmt.fn_name
-        if stmt.arguments and #stmt.arguments > 0 then
-            result.arguments = serialize_arguments(stmt.arguments)
-        end
-        if stmt.return_type then
+        result.arguments = serialize_arguments(stmt.arguments)
+
+        if t == "HelperFn" and stmt.return_type then
             result.return_type = stmt.return_type_name
         end
-        result.statements = {}
-        if stmt.body_statements then
-            for _, s in ipairs(stmt.body_statements) do
-                table.insert(result.statements, serialize_statement(s))
-            end
-        end
-    elseif stmt_type == "VariableStatement" then
+
+        result.statements = map_list(stmt.body_statements, serialize_statement) or {}
+
+    elseif t == "VariableStatement" then
         result.type = "GLOBAL_VARIABLE"
         result.name = stmt.name
         result.variable_type = stmt.type_name
         result.assignment = serialize_expr(stmt.expr)
-    elseif stmt_type == "CommentStatement" then
+
+    elseif t == "CommentStatement" then
         result.type = "GLOBAL_COMMENT"
         result.comment = stmt.string
-    elseif stmt_type == "EmptyLineStatement" then
+
+    elseif t == "EmptyLineStatement" then
         result.type = "GLOBAL_EMPTY_LINE"
     end
 
     return result
 end
 
+-- ======================
+-- JSON Conversion
+-- ======================
 local function ast_to_json_text(ast)
-    local serialized = {}
-    for _, node in ipairs(ast) do
-        table.insert(serialized, serialize_global_statement(node))
-    end
-    return json.encode(serialized)
+    return json.encode(map_list(ast, serialize_global_statement) or {})
 end
 
+-- ======================
+-- GRUG Output
+-- ======================
 local function ast_to_grug(ast)
-    local output = {}
-    local indentation = 0
+    local output, indentation = {}, 0
 
     local function write(text)
         table.insert(output, text)
     end
 
-    local function apply_indentation()
+    local function indent()
         write(string.rep("    ", indentation))
     end
 
-    local apply_expr
-    local apply_statement
-    local apply_statements
+    -- ===== Expressions =====
+    local function apply_expr(expr)
+        local t = expr.type
 
-    apply_expr = function(expr)
-        local expr_type = expr.type
-
-        if expr_type == "TRUE_EXPR" then
+        if t == "TRUE_EXPR" then
             write("true")
-        elseif expr_type == "FALSE_EXPR" then
+        elseif t == "FALSE_EXPR" then
             write("false")
-        elseif expr_type == "STRING_EXPR" then
+        elseif t == "STRING_EXPR" then
             write('"' .. expr.str .. '"')
-        elseif expr_type == "ENTITY_EXPR" then
+        elseif t == "ENTITY_EXPR" then
             write('e"' .. expr.str .. '"')
-        elseif expr_type == "RESOURCE_EXPR" then
+        elseif t == "RESOURCE_EXPR" then
             write('r"' .. expr.str .. '"')
-        elseif expr_type == "IDENTIFIER_EXPR" then
+        elseif t == "IDENTIFIER_EXPR" then
             write(expr.str)
-        elseif expr_type == "NUMBER_EXPR" then
+        elseif t == "NUMBER_EXPR" then
             write(tostring(expr.value))
-        elseif expr_type == "UNARY_EXPR" then
-            local op = expr.operator
-            if op == "MINUS_TOKEN" then
-                write("-")
-            else
-                write("not ")
-            end
+
+        elseif t == "UNARY_EXPR" then
+            write(expr.operator == "MINUS_TOKEN" and "-" or "not ")
             apply_expr(expr.expr)
-        elseif expr_type == "BINARY_EXPR" then
-            apply_expr(expr.left_expr)
+
+        elseif t == "BINARY_EXPR" then
             local op_map = {
                 PLUS_TOKEN = "+",
                 MINUS_TOKEN = "-",
@@ -235,181 +215,156 @@ local function ast_to_grug(ast)
                 LESS_OR_EQUAL_TOKEN = "<=",
                 LESS_TOKEN = "<"
             }
+            apply_expr(expr.left_expr)
             write(" " .. op_map[expr.operator] .. " ")
             apply_expr(expr.right_expr)
-        elseif expr_type == "LOGICAL_EXPR" then
+
+        elseif t == "LOGICAL_EXPR" then
             apply_expr(expr.left_expr)
-            local op = (expr.operator == "AND_TOKEN") and "and" or "or"
-            write(" " .. op .. " ")
+            write(expr.operator == "AND_TOKEN" and " and " or " or ")
             apply_expr(expr.right_expr)
-        elseif expr_type == "CALL_EXPR" then
+
+        elseif t == "CALL_EXPR" then
             write(expr.name .. "(")
-            if expr.arguments then
-                for i, arg in ipairs(expr.arguments) do
-                    if i > 1 then write(", ") end
-                    apply_expr(arg)
-                end
+            for i, arg in ipairs(expr.arguments or {}) do
+                if i > 1 then write(", ") end
+                apply_expr(arg)
             end
             write(")")
-        elseif expr_type == "PARENTHESIZED_EXPR" then
+
+        elseif t == "PARENTHESIZED_EXPR" then
             write("(")
             apply_expr(expr.expr)
             write(")")
         end
     end
 
-    local function try_get_else_if(else_statements)
-        if else_statements and #else_statements > 0 and else_statements[1].type == "IF_STATEMENT" then
-            return else_statements[1]
-        end
-        return nil
-    end
-
-    local function apply_comment(statement)
-        write("# " .. statement.comment .. "\n")
-    end
-
-    local function apply_if_statement(statement)
-        write("if ")
-        apply_expr(statement.condition)
-        write(" {\n")
-
-        if statement.if_statements then
-            apply_statements(statement.if_statements)
-        end
-
-        if statement.else_statements and #statement.else_statements > 0 then
-            apply_indentation()
-            write("} else ")
-
-            local else_if_node = try_get_else_if(statement.else_statements)
-            if else_if_node then
-                apply_if_statement(else_if_node)
-            else
-                write("{\n")
-                apply_statements(statement.else_statements)
-                apply_indentation()
-                write("}\n")
-            end
-        else
-            apply_indentation()
-            write("}\n")
-        end
-    end
-
-    apply_statement = function(statement)
-        local stmt_type = statement.type
-
-        if stmt_type == "VARIABLE_STATEMENT" then
-            write(statement.name)
-            if statement.variable_type then
-                write(": " .. statement.variable_type)
-            end
-            write(" = ")
-            apply_expr(statement.assignment)
-            write("\n")
-        elseif stmt_type == "CALL_STATEMENT" then
-            write(statement.name .. "(")
-            if statement.arguments then
-                for i, arg in ipairs(statement.arguments) do
-                    if i > 1 then write(", ") end
-                    apply_expr(arg)
-                end
-            end
-            write(")\n")
-        elseif stmt_type == "IF_STATEMENT" then
-            apply_if_statement(statement)
-        elseif stmt_type == "RETURN_STATEMENT" then
-            write("return")
-            if statement.expr then
-                write(" ")
-                apply_expr(statement.expr)
-            end
-            write("\n")
-        elseif stmt_type == "WHILE_STATEMENT" then
-            write("while ")
-            apply_expr(statement.condition)
-            write(" {\n")
-            apply_statements(statement.statements)
-            apply_indentation()
-            write("}\n")
-        elseif stmt_type == "BREAK_STATEMENT" then
-            write("break\n")
-        elseif stmt_type == "CONTINUE_STATEMENT" then
-            write("continue\n")
-        elseif stmt_type == "COMMENT_STATEMENT" then
-            apply_comment(statement)
-        end
-    end
-
-    apply_statements = function(statements)
+    -- ===== Statements =====
+    local function apply_statements(statements)
         indentation = indentation + 1
-        for _, statement in ipairs(statements) do
-            if statement.type == "EMPTY_LINE_STATEMENT" then
+        for _, s in ipairs(statements or {}) do
+            if s.type == "EMPTY_LINE_STATEMENT" then
                 write("\n")
             else
-                apply_indentation()
-                apply_statement(statement)
+                indent()
+                apply_statement(s)
             end
         end
         indentation = indentation - 1
     end
 
-    local function apply_arguments(arguments)
-        for i, arg in ipairs(arguments) do
-            if i > 1 then write(", ") end
-            write(arg.name .. ": " .. arg.type)
-        end
-    end
-
-    local function apply_helper_fn(statement)
-        write(statement.name .. "(")
-        if statement.arguments then
-            apply_arguments(statement.arguments)
-        end
-        write(")")
-        if statement.return_type then
-            write(" " .. statement.return_type)
-        end
+    local function apply_if(stmt)
+        write("if ")
+        apply_expr(stmt.condition)
         write(" {\n")
-        apply_statements(statement.statements)
-        write("}\n")
-    end
 
-    local function apply_on_fn(statement)
-        write(statement.name .. "(")
-        if statement.arguments then
-            apply_arguments(statement.arguments)
-        end
-        write(") {\n")
-        apply_statements(statement.statements)
-        write("}\n")
-    end
+        apply_statements(stmt.if_statements)
 
-    local function apply_global_variable(statement)
-        write(statement.name .. ": " .. statement.variable_type .. " = ")
-        apply_expr(statement.assignment)
-        write("\n")
-    end
+        if stmt.else_statements and #stmt.else_statements > 0 then
+            indent()
+            write("} else ")
 
-    local function apply_root(root)
-        for _, statement in ipairs(root) do
-            local stmt_type = statement.type
-
-            if stmt_type == "GLOBAL_VARIABLE" then
-                apply_global_variable(statement)
-            elseif stmt_type == "GLOBAL_ON_FN" then
-                apply_on_fn(statement)
-            elseif stmt_type == "GLOBAL_HELPER_FN" then
-                apply_helper_fn(statement)
-            elseif stmt_type == "GLOBAL_EMPTY_LINE" then
-                write("\n")
-            elseif stmt_type == "GLOBAL_COMMENT" then
-                apply_comment(statement)
+            local first = stmt.else_statements[1]
+            if first and first.type == "IF_STATEMENT" then
+                apply_if(first)
+            else
+                write("{\n")
+                apply_statements(stmt.else_statements)
+                indent()
+                write("}\n")
             end
+        else
+            indent()
+            write("}\n")
         end
     end
 
-    apply_root(ast)
+    function apply_statement(stmt)
+        local t = stmt.type
+
+        if t == "VARIABLE_STATEMENT" then
+            write(stmt.name)
+            if stmt.variable_type then
+                write(": " .. stmt.variable_type)
+            end
+            write(" = ")
+            apply_expr(stmt.assignment)
+            write("\n")
+
+        elseif t == "CALL_STATEMENT" then
+            write(stmt.name .. "(")
+            for i, arg in ipairs(stmt.arguments or {}) do
+                if i > 1 then write(", ") end
+                apply_expr(arg)
+            end
+            write(")\n")
+
+        elseif t == "IF_STATEMENT" then
+            apply_if(stmt)
+
+        elseif t == "RETURN_STATEMENT" then
+            write("return")
+            if stmt.expr then
+                write(" ")
+                apply_expr(stmt.expr)
+            end
+            write("\n")
+
+        elseif t == "WHILE_STATEMENT" then
+            write("while ")
+            apply_expr(stmt.condition)
+            write(" {\n")
+            apply_statements(stmt.statements)
+            indent()
+            write("}\n")
+
+        elseif t == "BREAK_STATEMENT" then
+            write("break\n")
+
+        elseif t == "CONTINUE_STATEMENT" then
+            write("continue\n")
+
+        elseif t == "COMMENT_STATEMENT" then
+            write("# " .. stmt.comment .. "\n")
+        end
+    end
+
+    -- ===== Globals =====
+    local function apply_args(args)
+        for i, a in ipairs(args or {}) do
+            if i > 1 then write(", ") end
+            write(a.name .. ": " .. a.type)
+        end
+    end
+
+    for _, stmt in ipairs(ast) do
+        local t = stmt.type
+
+        if t == "GLOBAL_VARIABLE" then
+            write(stmt.name .. ": " .. stmt.variable_type .. " = ")
+            apply_expr(stmt.assignment)
+            write("\n")
+
+        elseif t == "GLOBAL_ON_FN" or t == "GLOBAL_HELPER_FN" then
+            write(stmt.name .. "(")
+            apply_args(stmt.arguments)
+            write(")")
+
+            if t == "GLOBAL_HELPER_FN" and stmt.return_type then
+                write(" " .. stmt.return_type)
+            end
+
+            write(" {\n")
+            apply_statements(stmt.statements)
+            write("}\n")
+
+        elseif t == "GLOBAL_EMPTY_LINE" then
+            write("\n")
+
+        elseif t == "GLOBAL_COMMENT" then
+            write("# " .. stmt.comment .. "\n")
+        end
+    end
+
     return table.concat(output)
 end
