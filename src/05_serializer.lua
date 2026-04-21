@@ -219,6 +219,8 @@ local function ast_to_grug(ast)
 	end
 
 	-- ===== Statements =====
+	local apply_statement -- Forward declaration
+
 	local function apply_statements(statements)
 		indentation = indentation + 1
 		for _, s in ipairs(statements or {}) do

@@ -1,8 +1,5 @@
 local Entity = {}
 
--- This is not marked local, because tests.lua patches _GrugEntity._run_game_fn().
-_GrugEntity = Entity
-
 local MAX_DEPTH = 100
 
 -- Control flow exception tokens used to mimic Python's exception-based control flow

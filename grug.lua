@@ -2284,6 +2284,8 @@ local function ast_to_grug(ast)
 	end
 
 	-- ===== Statements =====
+	local apply_statement -- Forward declaration
+
 	local function apply_statements(statements)
 		indentation = indentation + 1
 		for _, s in ipairs(statements or {}) do
@@ -2409,9 +2411,6 @@ end
 
 -- BEGIN 06_entity.lua
 local Entity = {}
-
--- This is not marked local, because tests.lua patches _GrugEntity._run_game_fn().
-_GrugEntity = Entity
 
 local MAX_DEPTH = 100
 
@@ -2849,6 +2848,9 @@ end
 -- BEGIN 08_init.lua
 local grug = {}
 grug.__index = grug
+
+-- tests.lua patches grug._GrugEntity._run_game_fn().
+grug._GrugEntity = Entity
 
 local function read(path)
 	local file = assert(io.open(path, "r"))

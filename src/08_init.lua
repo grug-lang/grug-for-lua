@@ -1,6 +1,9 @@
 local grug = {}
 grug.__index = grug
 
+-- tests.lua patches grug._GrugEntity._run_game_fn().
+grug._GrugEntity = Entity
+
 local function read(path)
 	local file = assert(io.open(path, "r"))
 	local data, err = file:read("*all")
