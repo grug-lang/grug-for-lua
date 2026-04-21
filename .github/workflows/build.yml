@@ -28,7 +28,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential luarocks
 
-          luarocks install luacheck
+          sudo luarocks install luacheck
 
           if [ "${{ matrix.lua }}" = "luajit" ]; then
             sudo apt-get install -y luajit libluajit-5.1-dev
