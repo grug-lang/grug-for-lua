@@ -2850,7 +2850,54 @@ grug.__index = grug
 -- tests.lua patches grug._GrugEntity._run_game_fn().
 grug._GrugEntity = Entity
 
+local function is_computercraft_checker()
+	if not os or not os.version then -- luacheck: ignore os
+		return false
+	end
+
+	local version = os.version() -- luacheck: ignore os
+
+	-- Computers use CraftOS, whereas Turtles use TurtleOS.
+	return version:find("CraftOS") or version:find("TurtleOS")
+end
+
+local is_computercraft = is_computercraft_checker()
+
+local function read_computercraft(path)
+	-- We use binary mode to preserve the trailing newline
+	-- at the end of the file.
+	-- ComputerCraft 1.33 replaces Lua's default io API
+	-- with its own io API that uses CC its fs API.
+	--
+	-- This workaround might not be necessary for OpenComputers,
+	-- but the main goal is to support Tekkit Classic's CC.
+	--
+	-- ComputerCraft strips the trailing newline here:
+	-- https://github.com/dan200/ComputerCraft/blob/
+	-- bbe7a4c11c4c0fc5ae3c040c3374cf8a52922b64/src/
+	-- main/java/dan200/computercraft/core/apis/
+	-- handles/EncodedInputHandle.java#L83-L103
+	local file = assert(io.open(path, "rb"))
+
+	-- ComputerCraft 1.33 its io.read()
+	-- can't read more than one byte at a time.
+	local byte = file:read(1)
+
+	local data = ""
+	while byte do
+		data = data .. string.char(byte)
+		byte = file:read(1)
+	end
+
+	file:close()
+	return data
+end
+
 local function read(path)
+	if is_computercraft then
+		return read_computercraft(path)
+	end
+
 	local file = assert(io.open(path, "r"))
 	local data, err = file:read("*a")
 	file:close()
