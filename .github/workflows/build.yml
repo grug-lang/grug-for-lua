@@ -79,9 +79,6 @@ jobs:
         if: matrix.lua == 'luajit'
         run: git diff --exit-code
 
-      - name: Run luacheck
-        run: luacheck .
-
       - name: Run tests
         if: matrix.lua == 'luajit'
         run: $LUA_CMD tests.lua "" ./grug-tests
@@ -90,6 +87,9 @@ jobs:
         run: |
           cd examples/minimal
           $LUA_CMD example.lua
+
+      - name: Run luacheck
+        run: luacheck .
 
   lint:
     runs-on: ubuntu-latest
