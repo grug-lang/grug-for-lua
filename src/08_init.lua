@@ -6,7 +6,7 @@ grug._GrugEntity = Entity
 
 local function read(path)
 	local file = assert(io.open(path, "r"))
-	local data, err = file:read("*all")
+	local data, err = file:read("*a")
 	file:close()
 	assert(data, err)
 	return data
