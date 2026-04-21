@@ -61,7 +61,7 @@ jobs:
               -o $HOME/luaj/luaj.jar \
               https://repo1.maven.org/maven2/org/luaj/luaj-jse/2.0.3/luaj-jse-2.0.3.jar
 
-            echo "LUA_CMD=java -jar $HOME/luaj/luaj.jar" >> $GITHUB_ENV
+            echo "LUA_CMD=java -cp $HOME/luaj/luaj.jar org.luaj.vm2.Lua" >> $GITHUB_ENV
           fi
 
       - name: Clone and build grug-tests
