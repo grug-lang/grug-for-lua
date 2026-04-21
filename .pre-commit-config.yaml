@@ -13,3 +13,13 @@ repos:
     rev: v2.0.2
     hooks:
       - id: stylua
+
+  # luacheck is intentionally NOT using a repo hook
+  # because it *required* LuaRocks to be installed
+  - repo: local
+    hooks:
+      - id: luacheck
+        name: luacheck
+        entry: luacheck
+        language: system
+        types: [lua]

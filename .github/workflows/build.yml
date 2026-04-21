@@ -14,7 +14,10 @@ jobs:
         lua:
           - luajit
           - lua5.1
+          - lua5.2
           - lua5.3
+          - lua5.4
+          - lua5.5
 
     steps:
       - name: Checkout repo
@@ -23,7 +26,7 @@ jobs:
       - name: Install Lua and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential
+          sudo apt-get install -y cmake build-essential luacheck
 
           if [ "${{ matrix.lua }}" = "luajit" ]; then
             sudo apt-get install -y luajit libluajit-5.1-dev
@@ -50,6 +53,9 @@ jobs:
       - name: Ensure amalgamation is up-to-date
         if: matrix.lua == 'luajit'
         run: git diff --exit-code
+
+      - name: Run luacheck
+        run: luacheck .
 
       - name: Run tests
         if: matrix.lua == 'luajit'

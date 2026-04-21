@@ -83,18 +83,26 @@ If you modify Python or Lua source files, note that CI enforces:
 
 * formatting (Black, StyLua)
 * type checking (Pyright)
+* static analysis (luacheck)
 * up-to-date generated output
 
-### Pre-commit hooks (recommended)
+## Pre-commit hooks (recommended)
 
-Install local checks before pushing:
+### Install pre-commit
 
 ```bash
 pip install pre-commit
 pre-commit install
 ```
 
-Run manually:
+### Install luacheck
+
+You can install it using the [LuaRocks](https://github.com/luarocks/luarocks) package manager:
+```bash
+luarocks install luacheck
+```
+
+### Run manually
 
 ```bash
 pre-commit run --all-files
