@@ -7,8 +7,6 @@ def main():
     files.sort()
 
     with open("grug.lua", "w", encoding="utf-8") as outfile:
-        outfile.write("local grug = {}\n\n")
-
         for i, filename in enumerate(files):
             path = os.path.join("src", filename)
 

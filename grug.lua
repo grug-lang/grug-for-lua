@@ -1,5 +1,3 @@
-local grug = {}
-
 -- BEGIN 01_json.lua
 --
 -- json.lua
