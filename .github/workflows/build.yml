@@ -18,6 +18,7 @@ jobs:
           - lua5.3
           - lua5.4
           - lua5.5
+          - luaj-jse-2.0.3
 
     steps:
       - name: Checkout repo
@@ -26,19 +27,41 @@ jobs:
       - name: Install Lua and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential luarocks
+          sudo apt-get install -y cmake build-essential luarocks curl
 
           sudo luarocks install luacheck
 
           if [ "${{ matrix.lua }}" = "luajit" ]; then
             sudo apt-get install -y luajit libluajit-5.1-dev
-            echo "LUA_BIN=luajit" >> $GITHUB_ENV
+            echo "LUA_CMD=luajit" >> $GITHUB_ENV
+
           elif [ "${{ matrix.lua }}" = "lua5.1" ]; then
             sudo apt-get install -y lua5.1 liblua5.1-0-dev
-            echo "LUA_BIN=lua5.1" >> $GITHUB_ENV
+            echo "LUA_CMD=lua5.1" >> $GITHUB_ENV
+
+          elif [ "${{ matrix.lua }}" = "lua5.2" ]; then
+            sudo apt-get install -y lua5.2 liblua5.2-dev
+            echo "LUA_CMD=lua5.2" >> $GITHUB_ENV
+
           elif [ "${{ matrix.lua }}" = "lua5.3" ]; then
             sudo apt-get install -y lua5.3 liblua5.3-dev
-            echo "LUA_BIN=lua5.3" >> $GITHUB_ENV
+            echo "LUA_CMD=lua5.3" >> $GITHUB_ENV
+
+          elif [ "${{ matrix.lua }}" = "lua5.4" ]; then
+            sudo apt-get install -y lua5.4 liblua5.4-dev
+            echo "LUA_CMD=lua5.4" >> $GITHUB_ENV
+
+          elif [ "${{ matrix.lua }}" = "lua5.5" ]; then
+            echo "LUA_CMD=lua5.5" >> $GITHUB_ENV
+
+          elif [ "${{ matrix.lua }}" = "luaj-jse-2.0.3" ]; then
+            sudo apt-get install -y openjdk-17-jre
+            mkdir -p $HOME/luaj
+            curl -L \
+              -o $HOME/luaj/luaj.jar \
+              https://repo1.maven.org/maven2/org/luaj/luaj-jse/2.0.3/luaj-jse-2.0.3.jar
+
+            echo "LUA_CMD=java -jar $HOME/luaj/luaj.jar" >> $GITHUB_ENV
           fi
 
       - name: Clone and build grug-tests
@@ -61,12 +84,12 @@ jobs:
 
       - name: Run tests
         if: matrix.lua == 'luajit'
-        run: $LUA_BIN tests.lua "" ./grug-tests
+        run: $LUA_CMD tests.lua "" ./grug-tests
 
       - name: Run Lua example (minimal)
         run: |
           cd examples/minimal
-          $LUA_BIN example.lua
+          $LUA_CMD example.lua
 
   lint:
     runs-on: ubuntu-latest
