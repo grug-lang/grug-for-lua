@@ -56,12 +56,13 @@ jobs:
 
           elif [ "${{ matrix.lua }}" = "luaj-jse-2.0.3" ]; then
             sudo apt-get install -y openjdk-17-jre
+
             mkdir -p $HOME/luaj
             curl -L \
               -o $HOME/luaj/luaj.jar \
               https://repo1.maven.org/maven2/org/luaj/luaj-jse/2.0.3/luaj-jse-2.0.3.jar
 
-            echo "LUA_CMD=java -cp $HOME/luaj/luaj.jar org.luaj.vm2.LuaC" >> $GITHUB_ENV
+            echo "LUA_CMD=java -cp $HOME/luaj/luaj.jar lua" >> $GITHUB_ENV
           fi
 
       - name: Clone and build grug-tests
