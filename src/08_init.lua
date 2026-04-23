@@ -66,7 +66,7 @@ local function write(path, text)
 	assert(ok, err)
 end
 
-function grug:update()
+function grug:update() -- luacheck: ignore
 	-- TODO: Implement hot reloading
 end
 
@@ -166,7 +166,7 @@ function grug:compile_grug_file(grug_file_relative_path)
 	)
 end
 
-function grug:dump_file_to_json(input_grug_path, output_json_path)
+function grug:dump_file_to_json(input_grug_path, output_json_path) -- luacheck: ignore
 	local grug_text = read(input_grug_path)
 
 	local tokens = tokenize(grug_text)
@@ -178,7 +178,7 @@ function grug:dump_file_to_json(input_grug_path, output_json_path)
 	write(output_json_path, json_text)
 end
 
-function grug:generate_file_from_json(input_json_path, output_grug_path)
+function grug:generate_file_from_json(input_json_path, output_grug_path) -- luacheck: ignore
 	local json_text = read(input_json_path)
 
 	local ast = json.decode(json_text)
@@ -244,7 +244,7 @@ local function assert_mod_api(mod_api)
 	end
 end
 
-local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path)
+local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path) -- luacheck: ignore
 	print("grug runtime error in " .. on_fn_name .. "(): " .. reason .. ", in " .. on_fn_path)
 end
 
@@ -270,6 +270,7 @@ function grug.init(settings)
 		runtime_error_handler = runtime_error_handler,
 		mods_dir_path = mods_dir_path,
 		on_fn_time_limit_ms = on_fn_time_limit_ms,
+		packages = packages,
 		mod_api = mod_api,
 		game_fns = {},
 		next_id = 0,

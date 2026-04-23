@@ -20,13 +20,13 @@ local function serialize_expr(expr)
 	elseif expr.string ~= nil then
 		local res_type = (type(expr.result) == "table") and expr.result.type_name or expr.result
 
-		local type_map = {
+		local string_type_map = {
 			string = "STRING_EXPR",
 			resource = "RESOURCE_EXPR",
 			entity = "ENTITY_EXPR",
 		}
 
-		result.type = type_map[res_type] or "STRING_EXPR"
+		result.type = string_type_map[res_type] or "STRING_EXPR"
 		result.str = expr.string
 	elseif expr.name ~= nil and not expr.fn_name then
 		result.type = "IDENTIFIER_EXPR"

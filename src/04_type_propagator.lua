@@ -29,36 +29,16 @@ end
 -- Helpers
 -- --------------------------------------------------------------------------
 
-local TYPE_MAP = {
-	bool = "BOOL",
-	number = "NUMBER",
-	string = "STRING",
-	resource = "RESOURCE",
-	entity = "ENTITY",
-}
-
-local function parse_type(type_str)
-	if not type_str then
-		return nil
-	end
-	return TYPE_MAP[type_str] or "ID"
-end
-
 local function parse_args(lst)
 	local args = {}
 	for _, obj in ipairs(lst or {}) do
-		table.insert(args, Argument(obj.name, parse_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
+		table.insert(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
 	end
 	return args
 end
 
 local function parse_game_fn(fn_name, fn)
-	return GameFn(
-		fn_name,
-		parse_args(fn.arguments),
-		fn.return_type and parse_type(fn.return_type) or nil,
-		fn.return_type
-	)
+	return GameFn(fn_name, parse_args(fn.arguments), fn.return_type and get_type(fn.return_type) or nil, fn.return_type)
 end
 
 -- --------------------------------------------------------------------------
@@ -143,7 +123,7 @@ end
 -- Validation Logic
 -- --------------------------------------------------------------------------
 
-function TypePropagator:are_incompatible_types(first_type, first_type_name, second_type, second_type_name)
+local function are_incompatible_types(first_type, first_type_name, second_type, second_type_name)
 	if first_type ~= second_type then
 		return true
 	end
@@ -204,7 +184,7 @@ function TypePropagator:validate_entity_string(str)
 	check_chars(entity_name, "entity")
 end
 
-function TypePropagator:validate_resource_string(str, resource_extension)
+local function validate_resource_string(str, resource_extension)
 	if not str or str == "" then
 		error("Resources can't be empty strings")
 	end
@@ -314,7 +294,7 @@ function TypePropagator:check_arguments(params, call_expr)
 			if arg.result.type == "ENTITY" then
 				self:validate_entity_string(arg.string)
 			elseif arg.result.type == "RESOURCE" then
-				self:validate_resource_string(arg.string, param.resource_extension)
+				validate_resource_string(arg.string, param.resource_extension)
 			end
 		end
 
@@ -330,7 +310,7 @@ function TypePropagator:check_arguments(params, call_expr)
 			)
 		end
 
-		if self:are_incompatible_types(param.type, param.type_name, arg.result.type, arg.result.type_name) then
+		if are_incompatible_types(param.type, param.type_name, arg.result.type, arg.result.type_name) then
 			error(
 				"Function call '"
 					.. fn_name
@@ -469,12 +449,7 @@ function TypePropagator:fill_statements(statements)
 			local var = self:get_variable(stmt.name)
 			if stmt.type then
 				if
-					self:are_incompatible_types(
-						stmt.type,
-						stmt.type_name,
-						stmt.expr.result.type,
-						stmt.expr.result.type_name
-					)
+					are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name)
 				then
 					error(
 						"Can't assign "
@@ -494,7 +469,7 @@ function TypePropagator:fill_statements(statements)
 					error("Global id variables can't be reassigned")
 				end
 				if
-					self:are_incompatible_types(
+					are_incompatible_types(
 						var.type,
 						var.name == "me" and self.file_entity_type or var.type_name,
 						stmt.expr.result.type,
@@ -529,7 +504,7 @@ function TypePropagator:fill_statements(statements)
 					error("Function '" .. tostring(self.filled_fn_name) .. "' wasn't supposed to return any value")
 				end
 				if
-					self:are_incompatible_types(
+					are_incompatible_types(
 						self.fn_return_type,
 						self.fn_return_type_name,
 						stmt.value.result.type,
@@ -596,14 +571,7 @@ function TypePropagator:fill_global_variables()
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
 				error("Global variables can't be assigned 'me'")
 			end
-			if
-				self:are_incompatible_types(
-					stmt.type,
-					stmt.type_name,
-					stmt.expr.result.type,
-					stmt.expr.result.type_name
-				)
-			then
+			if are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name) then
 				error(
 					"Can't assign "
 						.. tostring(stmt.expr.result.type_name)

@@ -50,7 +50,7 @@ local function escape_char(c)
 	return "\\" .. (escape_char_map[c] or string.format("u%04x", c:byte()))
 end
 
-local function encode_nil(val)
+local function encode_nil(val) -- luacheck: ignore
 	return "null"
 end
 
@@ -78,7 +78,7 @@ local function encode_table(val, stack)
 			error("invalid table: sparse array")
 		end
 		-- Encode
-		for i, v in ipairs(val) do
+		for _, v in ipairs(val) do
 			table.insert(res, encode(v, stack))
 		end
 		stack[val] = nil
@@ -595,7 +595,6 @@ end
 
 -- BEGIN 03_parser.lua
 local MAX_PARSING_DEPTH = 100
-local SPACES_PER_INDENT = 4
 local MIN_F64 = 2.2250738585072014e-308
 local MAX_F64 = 1.7976931348623157e308
 
@@ -804,11 +803,11 @@ function Parser:depth_scope(fn, ...)
 	return res
 end
 
-function Parser:get_type(type_str)
+local function get_type(type_str)
 	return TYPE_MAP[type_str] or "ID"
 end
 
-function Parser:validate_fn_body(fn)
+local function validate_fn_body(fn)
 	local is_empty = true
 	for _, s in ipairs(fn.body_statements) do
 		if s.stmt_type ~= "EmptyLineStatement" and s.stmt_type ~= "CommentStatement" then
@@ -910,7 +909,7 @@ function Parser:parse_arguments()
 		self:assert_type("WORD_TOKEN")
 		local t_token = self:consume()
 		local type_name = t_token.value
-		local arg_type = self:get_type(type_name)
+		local arg_type = get_type(type_name)
 
 		if arg_type == "RESOURCE" or arg_type == "ENTITY" then
 			error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type")
@@ -945,7 +944,7 @@ function Parser:parse_helper_fn()
 		local next_t = self:peek(1)
 		if next_t.type == "WORD_TOKEN" then
 			self.idx = self.idx + 2
-			fn.return_type = self:get_type(next_t.value)
+			fn.return_type = get_type(next_t.value)
 			fn.return_type_name = next_t.value
 			if fn.return_type == "RESOURCE" or fn.return_type == "ENTITY" then
 				error("The function '" .. name .. "' can't have '" .. fn.return_type_name .. "' as its return type")
@@ -955,7 +954,7 @@ function Parser:parse_helper_fn()
 
 	self.indentation = 0
 	fn.body_statements = self:parse_statements()
-	self:validate_fn_body(fn)
+	validate_fn_body(fn)
 	table.insert(self.ast, fn)
 	return fn
 end
@@ -969,7 +968,7 @@ function Parser:parse_on_fn()
 	end
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 	fn.body_statements = self:parse_statements()
-	self:validate_fn_body(fn)
+	validate_fn_body(fn)
 	table.insert(self.ast, fn)
 	return fn
 end
@@ -1081,7 +1080,7 @@ function Parser:parse_local_variable()
 		self:consume_space()
 		self:assert_type("WORD_TOKEN")
 		v_tname = self:consume().value
-		v_type = self:get_type(v_tname)
+		v_type = get_type(v_tname)
 		if v_type == "RESOURCE" or v_type == "ENTITY" then
 			error("The variable '" .. name .. "' can't have '" .. v_tname .. "' as its type")
 		end
@@ -1115,7 +1114,7 @@ function Parser:parse_global_variable()
 	self:assert_type("WORD_TOKEN")
 	local t_token = self:consume()
 	local t_name = t_token.value
-	local g_type = self:get_type(t_name)
+	local g_type = get_type(t_name)
 
 	if g_type == "RESOURCE" or g_type == "ENTITY" then
 		error("The global variable '" .. name .. "' can't have '" .. t_name .. "' as its type")
@@ -1168,7 +1167,7 @@ function Parser:parse_while_statement()
 	end)
 end
 
-function Parser:str_to_number(s)
+local function str_to_number(s)
 	local f = tonumber(s)
 	if not f or f ~= f or math.abs(f) > MAX_F64 then
 		error("The number " .. s .. " is too big")
@@ -1202,7 +1201,7 @@ function Parser:parse_primary()
 		elseif t.type == "WORD_TOKEN" then
 			return Nodes.Identifier(t.value)
 		elseif t.type == "NUMBER_TOKEN" then
-			return Nodes.Number(self:str_to_number(t.value), t.value)
+			return Nodes.Number(str_to_number(t.value), t.value)
 		end
 		error(
 			"Expected a primary expression token, but got token type "
@@ -1335,36 +1334,16 @@ end
 -- Helpers
 -- --------------------------------------------------------------------------
 
-local TYPE_MAP = {
-	bool = "BOOL",
-	number = "NUMBER",
-	string = "STRING",
-	resource = "RESOURCE",
-	entity = "ENTITY",
-}
-
-local function parse_type(type_str)
-	if not type_str then
-		return nil
-	end
-	return TYPE_MAP[type_str] or "ID"
-end
-
 local function parse_args(lst)
 	local args = {}
 	for _, obj in ipairs(lst or {}) do
-		table.insert(args, Argument(obj.name, parse_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
+		table.insert(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
 	end
 	return args
 end
 
 local function parse_game_fn(fn_name, fn)
-	return GameFn(
-		fn_name,
-		parse_args(fn.arguments),
-		fn.return_type and parse_type(fn.return_type) or nil,
-		fn.return_type
-	)
+	return GameFn(fn_name, parse_args(fn.arguments), fn.return_type and get_type(fn.return_type) or nil, fn.return_type)
 end
 
 -- --------------------------------------------------------------------------
@@ -1449,7 +1428,7 @@ end
 -- Validation Logic
 -- --------------------------------------------------------------------------
 
-function TypePropagator:are_incompatible_types(first_type, first_type_name, second_type, second_type_name)
+local function are_incompatible_types(first_type, first_type_name, second_type, second_type_name)
 	if first_type ~= second_type then
 		return true
 	end
@@ -1510,7 +1489,7 @@ function TypePropagator:validate_entity_string(str)
 	check_chars(entity_name, "entity")
 end
 
-function TypePropagator:validate_resource_string(str, resource_extension)
+local function validate_resource_string(str, resource_extension)
 	if not str or str == "" then
 		error("Resources can't be empty strings")
 	end
@@ -1620,7 +1599,7 @@ function TypePropagator:check_arguments(params, call_expr)
 			if arg.result.type == "ENTITY" then
 				self:validate_entity_string(arg.string)
 			elseif arg.result.type == "RESOURCE" then
-				self:validate_resource_string(arg.string, param.resource_extension)
+				validate_resource_string(arg.string, param.resource_extension)
 			end
 		end
 
@@ -1636,7 +1615,7 @@ function TypePropagator:check_arguments(params, call_expr)
 			)
 		end
 
-		if self:are_incompatible_types(param.type, param.type_name, arg.result.type, arg.result.type_name) then
+		if are_incompatible_types(param.type, param.type_name, arg.result.type, arg.result.type_name) then
 			error(
 				"Function call '"
 					.. fn_name
@@ -1775,12 +1754,7 @@ function TypePropagator:fill_statements(statements)
 			local var = self:get_variable(stmt.name)
 			if stmt.type then
 				if
-					self:are_incompatible_types(
-						stmt.type,
-						stmt.type_name,
-						stmt.expr.result.type,
-						stmt.expr.result.type_name
-					)
+					are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name)
 				then
 					error(
 						"Can't assign "
@@ -1800,7 +1774,7 @@ function TypePropagator:fill_statements(statements)
 					error("Global id variables can't be reassigned")
 				end
 				if
-					self:are_incompatible_types(
+					are_incompatible_types(
 						var.type,
 						var.name == "me" and self.file_entity_type or var.type_name,
 						stmt.expr.result.type,
@@ -1835,7 +1809,7 @@ function TypePropagator:fill_statements(statements)
 					error("Function '" .. tostring(self.filled_fn_name) .. "' wasn't supposed to return any value")
 				end
 				if
-					self:are_incompatible_types(
+					are_incompatible_types(
 						self.fn_return_type,
 						self.fn_return_type_name,
 						stmt.value.result.type,
@@ -1902,14 +1876,7 @@ function TypePropagator:fill_global_variables()
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
 				error("Global variables can't be assigned 'me'")
 			end
-			if
-				self:are_incompatible_types(
-					stmt.type,
-					stmt.type_name,
-					stmt.expr.result.type,
-					stmt.expr.result.type_name
-				)
-			then
+			if are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name) then
 				error(
 					"Can't assign "
 						.. tostring(stmt.expr.result.type_name)
@@ -2083,13 +2050,13 @@ local function serialize_expr(expr)
 	elseif expr.string ~= nil then
 		local res_type = (type(expr.result) == "table") and expr.result.type_name or expr.result
 
-		local type_map = {
+		local string_type_map = {
 			string = "STRING_EXPR",
 			resource = "RESOURCE_EXPR",
 			entity = "ENTITY_EXPR",
 		}
 
-		result.type = type_map[res_type] or "STRING_EXPR"
+		result.type = string_type_map[res_type] or "STRING_EXPR"
 		result.str = expr.string
 	elseif expr.name ~= nil and not expr.fn_name then
 		result.type = "IDENTIFIER_EXPR"
@@ -2502,16 +2469,20 @@ end
 
 -- Python's __getattr__ dynamic method logic translated to Lua's __index.
 -- This allows calling on_ functions defined in the grug file (e.g., dog:spawn()).
-function Entity:__index(key)
+function Entity:__index(key) -- luacheck: ignore
 	local val = rawget(Entity, key)
 	if val ~= nil then
 		return val
 	end
 
 	local fn_name = key
-	return function(self, ...)
-		return self:_run_on_fn(fn_name, ...)
+	return function(self2, ...)
+		return self2:_run_on_fn(fn_name, ...)
 	end
+end
+
+local function _get_expected_type(type_name)
+	return EXPECTED_TYPES[type_name] or "table"
 end
 
 function Entity:_run_on_fn(on_fn_name, ...)
@@ -2528,7 +2499,7 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	-- Assign and verify argument types
 	for i, argument in ipairs(on_fn.arguments) do
 		local arg = args[i]
-		local expected = self:_get_expected_type(argument.type_name)
+		local expected = _get_expected_type(argument.type_name)
 		if type(arg) ~= expected then
 			error(
 				string.format(
@@ -2559,9 +2530,7 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	local should_reraise = false
 	if not ok then
 		local err_type = type(err) == "table" and err.type
-		if err_type == "RETURN" then
-			-- On-functions do not return values to the host in Grug
-		elseif
+		if
 			err_type == "STACK_OVERFLOW"
 			or err_type == "TIME_LIMIT_EXCEEDED"
 			or err_type == "RERAISED_GAME_FN_ERROR"
@@ -2579,10 +2548,6 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	if should_reraise then
 		error(err)
 	end
-end
-
-function Entity:_get_expected_type(type_name)
-	return EXPECTED_TYPES[type_name] or "table"
 end
 
 function Entity:_run_statements(statements)
@@ -2720,12 +2685,8 @@ function Entity:_run_while_statement(statement)
 	local ok, err = pcall(function()
 		while self:_run_expr(statement.condition) do
 			local loop_ok, loop_err = pcall(self._run_statements, self, statement.body_statements)
-			if not loop_ok then
-				if type(loop_err) == "table" and loop_err.type == "CONTINUE" then
-					-- Catch continue and proceed to check time limit / next iteration
-				else
-					error(loop_err)
-				end
+			if not loop_ok and loop_err.type ~= "CONTINUE" then
+				error(loop_err)
 			end
 			self:_check_time_limit_exceeded()
 		end
@@ -2814,7 +2775,7 @@ function Entity:_run_game_fn(name, ...)
 		return
 	end
 
-	local expected = self:_get_expected_type(t)
+	local expected = _get_expected_type(t)
 	if type(result) ~= expected then
 		error(string.format("Return value of game function %s() must be %s, got %s", name, expected, type(result)))
 	end
@@ -2912,7 +2873,7 @@ local function write(path, text)
 	assert(ok, err)
 end
 
-function grug:update()
+function grug:update() -- luacheck: ignore
 	-- TODO: Implement hot reloading
 end
 
@@ -3012,7 +2973,7 @@ function grug:compile_grug_file(grug_file_relative_path)
 	)
 end
 
-function grug:dump_file_to_json(input_grug_path, output_json_path)
+function grug:dump_file_to_json(input_grug_path, output_json_path) -- luacheck: ignore
 	local grug_text = read(input_grug_path)
 
 	local tokens = tokenize(grug_text)
@@ -3024,7 +2985,7 @@ function grug:dump_file_to_json(input_grug_path, output_json_path)
 	write(output_json_path, json_text)
 end
 
-function grug:generate_file_from_json(input_json_path, output_grug_path)
+function grug:generate_file_from_json(input_json_path, output_grug_path) -- luacheck: ignore
 	local json_text = read(input_json_path)
 
 	local ast = json.decode(json_text)
@@ -3090,7 +3051,7 @@ local function assert_mod_api(mod_api)
 	end
 end
 
-local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path)
+local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path) -- luacheck: ignore
 	print("grug runtime error in " .. on_fn_name .. "(): " .. reason .. ", in " .. on_fn_path)
 end
 
@@ -3116,6 +3077,7 @@ function grug.init(settings)
 		runtime_error_handler = runtime_error_handler,
 		mods_dir_path = mods_dir_path,
 		on_fn_time_limit_ms = on_fn_time_limit_ms,
+		packages = packages,
 		mod_api = mod_api,
 		game_fns = {},
 		next_id = 0,

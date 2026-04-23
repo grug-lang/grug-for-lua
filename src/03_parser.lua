@@ -1,5 +1,4 @@
 local MAX_PARSING_DEPTH = 100
-local SPACES_PER_INDENT = 4
 local MIN_F64 = 2.2250738585072014e-308
 local MAX_F64 = 1.7976931348623157e308
 
@@ -208,11 +207,11 @@ function Parser:depth_scope(fn, ...)
 	return res
 end
 
-function Parser:get_type(type_str)
+local function get_type(type_str)
 	return TYPE_MAP[type_str] or "ID"
 end
 
-function Parser:validate_fn_body(fn)
+local function validate_fn_body(fn)
 	local is_empty = true
 	for _, s in ipairs(fn.body_statements) do
 		if s.stmt_type ~= "EmptyLineStatement" and s.stmt_type ~= "CommentStatement" then
@@ -314,7 +313,7 @@ function Parser:parse_arguments()
 		self:assert_type("WORD_TOKEN")
 		local t_token = self:consume()
 		local type_name = t_token.value
-		local arg_type = self:get_type(type_name)
+		local arg_type = get_type(type_name)
 
 		if arg_type == "RESOURCE" or arg_type == "ENTITY" then
 			error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type")
@@ -349,7 +348,7 @@ function Parser:parse_helper_fn()
 		local next_t = self:peek(1)
 		if next_t.type == "WORD_TOKEN" then
 			self.idx = self.idx + 2
-			fn.return_type = self:get_type(next_t.value)
+			fn.return_type = get_type(next_t.value)
 			fn.return_type_name = next_t.value
 			if fn.return_type == "RESOURCE" or fn.return_type == "ENTITY" then
 				error("The function '" .. name .. "' can't have '" .. fn.return_type_name .. "' as its return type")
@@ -359,7 +358,7 @@ function Parser:parse_helper_fn()
 
 	self.indentation = 0
 	fn.body_statements = self:parse_statements()
-	self:validate_fn_body(fn)
+	validate_fn_body(fn)
 	table.insert(self.ast, fn)
 	return fn
 end
@@ -373,7 +372,7 @@ function Parser:parse_on_fn()
 	end
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 	fn.body_statements = self:parse_statements()
-	self:validate_fn_body(fn)
+	validate_fn_body(fn)
 	table.insert(self.ast, fn)
 	return fn
 end
@@ -485,7 +484,7 @@ function Parser:parse_local_variable()
 		self:consume_space()
 		self:assert_type("WORD_TOKEN")
 		v_tname = self:consume().value
-		v_type = self:get_type(v_tname)
+		v_type = get_type(v_tname)
 		if v_type == "RESOURCE" or v_type == "ENTITY" then
 			error("The variable '" .. name .. "' can't have '" .. v_tname .. "' as its type")
 		end
@@ -519,7 +518,7 @@ function Parser:parse_global_variable()
 	self:assert_type("WORD_TOKEN")
 	local t_token = self:consume()
 	local t_name = t_token.value
-	local g_type = self:get_type(t_name)
+	local g_type = get_type(t_name)
 
 	if g_type == "RESOURCE" or g_type == "ENTITY" then
 		error("The global variable '" .. name .. "' can't have '" .. t_name .. "' as its type")
@@ -572,7 +571,7 @@ function Parser:parse_while_statement()
 	end)
 end
 
-function Parser:str_to_number(s)
+local function str_to_number(s)
 	local f = tonumber(s)
 	if not f or f ~= f or math.abs(f) > MAX_F64 then
 		error("The number " .. s .. " is too big")
@@ -606,7 +605,7 @@ function Parser:parse_primary()
 		elseif t.type == "WORD_TOKEN" then
 			return Nodes.Identifier(t.value)
 		elseif t.type == "NUMBER_TOKEN" then
-			return Nodes.Number(self:str_to_number(t.value), t.value)
+			return Nodes.Number(str_to_number(t.value), t.value)
 		end
 		error(
 			"Expected a primary expression token, but got token type "

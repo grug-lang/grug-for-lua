@@ -92,16 +92,20 @@ end
 
 -- Python's __getattr__ dynamic method logic translated to Lua's __index.
 -- This allows calling on_ functions defined in the grug file (e.g., dog:spawn()).
-function Entity:__index(key)
+function Entity:__index(key) -- luacheck: ignore
 	local val = rawget(Entity, key)
 	if val ~= nil then
 		return val
 	end
 
 	local fn_name = key
-	return function(self, ...)
-		return self:_run_on_fn(fn_name, ...)
+	return function(self2, ...)
+		return self2:_run_on_fn(fn_name, ...)
 	end
+end
+
+local function _get_expected_type(type_name)
+	return EXPECTED_TYPES[type_name] or "table"
 end
 
 function Entity:_run_on_fn(on_fn_name, ...)
@@ -118,7 +122,7 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	-- Assign and verify argument types
 	for i, argument in ipairs(on_fn.arguments) do
 		local arg = args[i]
-		local expected = self:_get_expected_type(argument.type_name)
+		local expected = _get_expected_type(argument.type_name)
 		if type(arg) ~= expected then
 			error(
 				string.format(
@@ -149,9 +153,7 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	local should_reraise = false
 	if not ok then
 		local err_type = type(err) == "table" and err.type
-		if err_type == "RETURN" then
-			-- On-functions do not return values to the host in Grug
-		elseif
+		if
 			err_type == "STACK_OVERFLOW"
 			or err_type == "TIME_LIMIT_EXCEEDED"
 			or err_type == "RERAISED_GAME_FN_ERROR"
@@ -169,10 +171,6 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	if should_reraise then
 		error(err)
 	end
-end
-
-function Entity:_get_expected_type(type_name)
-	return EXPECTED_TYPES[type_name] or "table"
 end
 
 function Entity:_run_statements(statements)
@@ -310,12 +308,8 @@ function Entity:_run_while_statement(statement)
 	local ok, err = pcall(function()
 		while self:_run_expr(statement.condition) do
 			local loop_ok, loop_err = pcall(self._run_statements, self, statement.body_statements)
-			if not loop_ok then
-				if type(loop_err) == "table" and loop_err.type == "CONTINUE" then
-					-- Catch continue and proceed to check time limit / next iteration
-				else
-					error(loop_err)
-				end
+			if not loop_ok and loop_err.type ~= "CONTINUE" then
+				error(loop_err)
 			end
 			self:_check_time_limit_exceeded()
 		end
@@ -404,7 +398,7 @@ function Entity:_run_game_fn(name, ...)
 		return
 	end
 
-	local expected = self:_get_expected_type(t)
+	local expected = _get_expected_type(t)
 	if type(result) ~= expected then
 		error(string.format("Return value of game function %s() must be %s, got %s", name, expected, type(result)))
 	end

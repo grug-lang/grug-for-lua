@@ -14,7 +14,7 @@ local function print_traceback(err)
 end
 
 -- Use to print tables when debugging
-local function dump(tbl, indent)
+local function dump(tbl, indent) -- luacheck: ignore
 	indent = indent or 0
 	local prefix = string.rep("  ", indent)
 
@@ -35,6 +35,7 @@ local function dump(tbl, indent)
 	print(prefix .. "}")
 end
 
+-- luacheck: push ignore
 ffi.cdef([[
     typedef union {
         double _number;
@@ -64,6 +65,7 @@ ffi.cdef([[
 
     void grug_tests_run(const char *tests_dir_path, const char *mod_api_path, grug_state_vtable vtable, const char *whitelisted_test);
 ]])
+-- luacheck: pop
 
 local game_fn_names = {
 	"nothing",
@@ -145,8 +147,8 @@ local function handle_entity_pcall_err(ok, err)
 	if not ok then
 		local err_type = type(err) == "table" and err.type
 		if
-			err_type == "TIME_LIMIT_EXCEEDED"
-			or err_type == "STACK_OVERFLOW"
+			err_type == "STACK_OVERFLOW"
+			or err_type == "TIME_LIMIT_EXCEEDED"
 			or err_type == "RERAISED_GAME_FN_ERROR"
 		then
 			grug_runtime_err = err
@@ -154,69 +156,6 @@ local function handle_entity_pcall_err(ok, err)
 			print_traceback(err)
 		end
 	end
-end
-
-function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
-	local mod_api_path = ffi.string(mod_api_path_)
-	local mods_dir_path = ffi.string(mods_dir_path_)
-
-	local new_state
-	local ok, err = pcall(function()
-		new_state = grug.init({
-			runtime_error_handler = custom_runtime_error_handler,
-			mod_api_path = mod_api_path,
-			mods_dir_path = mods_dir_path,
-		})
-	end)
-
-	if not ok then
-		print_traceback(err)
-		return nil
-	end
-
-	state = new_state
-	register_game_fns()
-	return ffi.cast("void*", 42)
-end
-
-function callbacks.destroy_grug_state(state_ptr) end
-
-function callbacks.compile_grug_file(state_ptr, file_path_, error_out_)
-	local file_path = ffi.string(file_path_)
-
-	local file
-	local ok, err = pcall(function()
-		file = state:compile_grug_file(file_path)
-	end)
-
-	if not ok then
-		-- Removes the leading path, like `./grug.lua:915: msg`.
-		-- This way we can use `error("msg")` instead of `error("msg", 0)`.
-		err = err:gsub("^.-:.-: ", "")
-
-		last_error = ffi.new("char[?]", #err + 1)
-		ffi.copy(last_error, err)
-		error_out_[0] = last_error
-		return nil
-	end
-
-	local file_id = #files + 1
-	files[file_id] = file
-	return ffi.cast("void*", file_id)
-end
-
-function callbacks.init_globals(state_ptr, file_id_)
-	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
-
-	assert(state)
-	state.next_id = 42
-
-	local grug_file = files[file_id]
-	assert(grug_file)
-
-	handle_entity_pcall_err(pcall(function()
-		current_entity = grug_file:create_entity()
-	end))
 end
 
 local function c_to_lua_value(value, typ)
@@ -228,69 +167,6 @@ local function c_to_lua_value(value, typ)
 		return ffi.string(value._string)
 	end
 	return { __grug_type = "id", value = tonumber(value._id) }
-end
-
-function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_)
-	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
-	local fn_name = ffi.string(fn_name_)
-	local args_len = tonumber(ffi.cast("uintptr_t", args_len_))
-
-	local grug_file = files[file_id]
-	assert(grug_file)
-	assert(current_entity)
-
-	local on_fn_decl = grug_file.on_fns[fn_name]
-	assert(on_fn_decl)
-	assert(#on_fn_decl.arguments == args_len)
-
-	local lua_args = {}
-	for i = 0, args_len - 1 do
-		local argument_decl = on_fn_decl.arguments[i + 1]
-		table.insert(lua_args, c_to_lua_value(args[i], argument_decl.type_name))
-	end
-
-	grug_runtime_err = nil
-	handle_entity_pcall_err(pcall(function()
-		current_entity:_run_on_fn(fn_name, unpack(lua_args))
-	end))
-end
-
-local function make_io_callback(method)
-	return function(state_ptr, input_path_, output_path_)
-		local input_path = ffi.string(input_path_)
-		local output_path = ffi.string(output_path_)
-		assert(state)
-		local ok, err = pcall(state[method], state, input_path, output_path)
-		if not ok then
-			print_traceback(err)
-			return true
-		end
-		return false
-	end
-end
-
-callbacks.dump_file_to_json = make_io_callback("dump_file_to_json")
-callbacks.generate_file_from_json = make_io_callback("generate_file_from_json")
-
-function _test_run_game_fn(self, name, ...)
-	local result = original_run_game_fn(self, name, ...)
-
-	if game_fn_error_reason then
-		local reason = game_fn_error_reason
-		game_fn_error_reason = nil
-
-		assert(state)
-		state.runtime_error_handler(reason, "GAME_FN_ERROR", self.fn_name, self.file.relative_path)
-		error({ type = "RERAISED_GAME_FN_ERROR", reason = reason })
-	end
-
-	return result
-end
-
-grug._GrugEntity._run_game_fn = _test_run_game_fn
-
-function callbacks.game_fn_error(state_ptr, message_)
-	game_fn_error_reason = ffi.string(message_)
 end
 
 local LUA_TO_C_ARG = {
@@ -311,12 +187,12 @@ local LUA_TO_C_ARG = {
 	end,
 }
 
-function register_game_fns()
+local function register_game_fns()
 	for _, name in ipairs(game_fn_names) do
 		local c_fn = grug_lib["game_fn_" .. name]
 		local return_type = state.mod_api.game_functions[name].return_type
 
-		state:register_game_fn(name, function(st, ...)
+		state:register_game_fn(name, function(st, ...) -- luacheck: ignore
 			local args = { ... }
 			local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
 
@@ -343,6 +219,132 @@ function register_game_fns()
 			return c_to_lua_value(union, return_type)
 		end)
 	end
+end
+
+function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
+	local mod_api_path = ffi.string(mod_api_path_)
+	local mods_dir_path = ffi.string(mods_dir_path_)
+
+	local new_state
+	local ok, err = pcall(function()
+		new_state = grug.init({
+			runtime_error_handler = custom_runtime_error_handler,
+			mod_api_path = mod_api_path,
+			mods_dir_path = mods_dir_path,
+		})
+	end)
+
+	if not ok then
+		print_traceback(err)
+		return nil
+	end
+
+	state = new_state
+	register_game_fns()
+	return ffi.cast("void*", 42)
+end
+
+function callbacks.destroy_grug_state(state_ptr) end -- luacheck: ignore
+
+function callbacks.compile_grug_file(state_ptr, file_path_, error_out_) -- luacheck: ignore
+	local file_path = ffi.string(file_path_)
+
+	local file
+	local ok, err = pcall(function()
+		file = state:compile_grug_file(file_path)
+	end)
+
+	if not ok then
+		-- Removes the leading path, like `./grug.lua:915: msg`.
+		-- This way we can use `error("msg")` instead of `error("msg", 0)`.
+		err = err:gsub("^.-:.-: ", "")
+
+		last_error = ffi.new("char[?]", #err + 1)
+		ffi.copy(last_error, err)
+		error_out_[0] = last_error
+		return nil
+	end
+
+	local file_id = #files + 1
+	files[file_id] = file
+	return ffi.cast("void*", file_id)
+end
+
+function callbacks.init_globals(state_ptr, file_id_) -- luacheck: ignore
+	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
+
+	assert(state)
+	state.next_id = 42
+
+	local grug_file = files[file_id]
+	assert(grug_file)
+
+	handle_entity_pcall_err(pcall(function()
+		current_entity = grug_file:create_entity()
+	end))
+end
+
+function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_) -- luacheck: ignore
+	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
+	local fn_name = ffi.string(fn_name_)
+	local args_len = tonumber(ffi.cast("uintptr_t", args_len_))
+
+	local grug_file = files[file_id]
+	assert(grug_file)
+	assert(current_entity)
+
+	local on_fn_decl = grug_file.on_fns[fn_name]
+	assert(on_fn_decl)
+	assert(#on_fn_decl.arguments == args_len)
+
+	local lua_args = {}
+	for i = 0, args_len - 1 do
+		local argument_decl = on_fn_decl.arguments[i + 1]
+		table.insert(lua_args, c_to_lua_value(args[i], argument_decl.type_name))
+	end
+
+	grug_runtime_err = nil
+	handle_entity_pcall_err(pcall(function()
+		current_entity:_run_on_fn(fn_name, unpack(lua_args))
+	end))
+end
+
+local function make_io_callback(method)
+	return function(state_ptr, input_path_, output_path_) -- luacheck: ignore
+		local input_path = ffi.string(input_path_)
+		local output_path = ffi.string(output_path_)
+		assert(state)
+		local ok, err = pcall(state[method], state, input_path, output_path)
+		if not ok then
+			print_traceback(err)
+			return true
+		end
+		return false
+	end
+end
+
+callbacks.dump_file_to_json = make_io_callback("dump_file_to_json")
+callbacks.generate_file_from_json = make_io_callback("generate_file_from_json")
+
+local function _test_run_game_fn(self, name, ...)
+	local result = original_run_game_fn(self, name, ...)
+
+	if game_fn_error_reason then
+		local reason = game_fn_error_reason
+		game_fn_error_reason = nil
+
+		assert(state)
+		state.runtime_error_handler(reason, "GAME_FN_ERROR", self.fn_name, self.file.relative_path)
+		error({ type = "RERAISED_GAME_FN_ERROR", reason = reason })
+	end
+
+	return result
+end
+
+grug._GrugEntity._run_game_fn = _test_run_game_fn
+
+function callbacks.game_fn_error(state_ptr, message_) -- luacheck: ignore
+	game_fn_error_reason = ffi.string(message_)
 end
 
 local vtable = ffi.new("grug_state_vtable", {

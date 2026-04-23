@@ -23,3 +23,5 @@ repos:
         entry: luacheck
         language: system
         types: [lua]
+        pass_filenames: false
+        args: [., --exclude-files, src, examples]
