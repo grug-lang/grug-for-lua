@@ -89,9 +89,6 @@ jobs:
           cd examples/minimal
           $LUA_CMD example.lua
 
-      - name: Run luacheck
-        run: luacheck .
-
   lint:
     runs-on: ubuntu-latest
 
