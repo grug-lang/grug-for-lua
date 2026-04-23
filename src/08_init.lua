@@ -220,12 +220,21 @@ end
 local function assert_mod_api(mod_api)
 	local entities = mod_api.entities
 	if type(entities) ~= "table" then
-		error(string.format("Error: 'entities' must be a JSON object, but got %s", type(entities)))
+		error(
+			string.format("Error: 'entities' must be a JSON object, but got %s: %s", type(entities), tostring(entities))
+		)
 	end
 
 	for entity_name, entity in pairs(entities) do
 		if type(entity) ~= "table" then
-			error(string.format("Error: entity '%s' must be a JSON object, but got %s", entity_name, type(entity)))
+			error(
+				string.format(
+					"Error: entity '%s' must be a JSON object, but got %s: %s",
+					entity_name,
+					type(entity),
+					tostring(entity)
+				)
+			)
 		end
 
 		local on_functions = entity.on_functions
@@ -233,9 +242,10 @@ local function assert_mod_api(mod_api)
 			if type(on_functions) ~= "table" then
 				error(
 					string.format(
-						"Error: 'on_functions' for entity '%s' must be a JSON array, but got %s",
+						"Error: 'on_functions' for entity '%s' must be a JSON array, but got %s: %s",
 						entity_name,
-						type(on_functions)
+						type(on_functions),
+						tostring(on_functions)
 					)
 				)
 			end
@@ -246,7 +256,11 @@ local function assert_mod_api(mod_api)
 
 	local game_functions = mod_api.game_functions
 	if type(game_functions) ~= "table" then
-		error(string.format("Error: 'game_functions' must be a JSON object, but got %s"), type(game_functions))
+		error(
+			string.format("Error: 'game_functions' must be a JSON object, but got %s: %s"),
+			type(game_functions),
+			tostring(game_functions)
+		)
 	end
 end
 
