@@ -50,8 +50,8 @@ ffi.cdef([[
         void* (*compile_grug_file)(void* state_ptr, const char* file_path, const char** error_out);
         void (*init_globals)(void* state_ptr, void* file_id);
         void (*call_export_fn)(void* state_ptr, void* file_id, const char* fn_name, GrugValueUnion* args, size_t args_len);
-        bool (*dump_file_to_json)(void* state_ptr, const char* input_grug_path, const char* output_json_path);
-        bool (*generate_file_from_json)(void* state_ptr, const char* input_json_path, const char* output_grug_path);
+        bool (*dump_file_to_json)(void* state_ptr, const char* input_grug_buffer, char* output_json_buffer, size_t output_buffer_len);
+        bool (*generate_file_from_json)(void* state_ptr, const char* input_json_buffer, char* output_grug_buffer, size_t output_buffer_len);
         void (*game_fn_error)(void* state_ptr, const char* reason);
     } grug_state_vtable;
 
@@ -310,15 +310,27 @@ function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_
 end
 
 local function make_io_callback(method)
-	return function(state_ptr, input_path_, output_path_) -- luacheck: ignore
-		local input_path = ffi.string(input_path_)
-		local output_path = ffi.string(output_path_)
+	return function(state_ptr, input_buffer_, output_buffer_, output_buffer_len) -- luacheck: ignore
+		local input_text = ffi.string(input_buffer_)
 		assert(state)
-		local ok, err = pcall(state[method], state, input_path, output_path)
+		local ok, result = pcall(state[method], state, input_text)
 		if not ok then
-			print_traceback(err)
+			print_traceback(result)
 			return true
 		end
+		-- +1 for the null terminator that ffi.copy appends
+		if #result + 1 > output_buffer_len then
+			print_traceback(
+				string.format(
+					"%s: output buffer too small (need %d bytes, have %d)",
+					method,
+					#result + 1,
+					output_buffer_len
+				)
+			)
+			return true
+		end
+		ffi.copy(output_buffer_, result)
 		return false
 	end
 end

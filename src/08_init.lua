@@ -62,15 +62,6 @@ local function read(path)
 	return data
 end
 
-local function write(path, text)
-	local file, err = io.open(path, "w")
-	assert(file, "failed to open file: " .. path .. " (" .. tostring(err) .. ")")
-
-	local ok, write_err = file:write(text)
-	file:close()
-	assert(ok, write_err)
-end
-
 function grug:update() -- luacheck: ignore
 	-- TODO: Implement hot reloading
 end
@@ -171,26 +162,15 @@ function grug:compile_grug_file(grug_file_relative_path)
 	)
 end
 
-function grug:dump_file_to_json(input_grug_path, output_json_path) -- luacheck: ignore
-	local grug_text = read(input_grug_path)
-
-	local tokens = tokenize(grug_text)
-
+function grug:dump_file_to_json(input_grug_text) -- luacheck: ignore
+	local tokens = tokenize(input_grug_text)
 	local ast = Parser.new(tokens):parse()
-
-	local json_text = ast_to_json_text(ast)
-
-	write(output_json_path, json_text)
+	return ast_to_json_text(ast)
 end
 
-function grug:generate_file_from_json(input_json_path, output_grug_path) -- luacheck: ignore
-	local json_text = read(input_json_path)
-
-	local ast = json.decode(json_text)
-
-	local grug_text = ast_to_grug(ast)
-
-	write(output_grug_path, grug_text)
+function grug:generate_file_from_json(input_json_text) -- luacheck: ignore
+	local ast = json.decode(input_json_text)
+	return ast_to_grug(ast)
 end
 
 function grug:register_game_fn(name, fn)
