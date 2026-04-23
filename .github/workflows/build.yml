@@ -52,6 +52,7 @@ jobs:
             echo "LUA_CMD=lua5.4" >> $GITHUB_ENV
 
           elif [ "${{ matrix.lua }}" = "lua5.5" ]; then
+            sudo apt-get install -y lua5.5 liblua5.5-dev
             echo "LUA_CMD=lua5.5" >> $GITHUB_ENV
 
           elif [ "${{ matrix.lua }}" = "luaj-jse-2.0.3" ]; then
