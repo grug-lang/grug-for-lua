@@ -31,7 +31,8 @@ local function read_computercraft(path)
 	-- bbe7a4c11c4c0fc5ae3c040c3374cf8a52922b64/src/
 	-- main/java/dan200/computercraft/core/apis/
 	-- handles/EncodedInputHandle.java#L83-L103
-	local file = assert(io.open(path, "rb"))
+	local file, err = io.open(path, "rb")
+	assert(file, "failed to open file: " .. path .. " (" .. tostring(err) .. ")")
 
 	-- ComputerCraft 1.33 its io.read()
 	-- can't read more than one byte at a time.
@@ -52,18 +53,22 @@ local function read(path)
 		return read_computercraft(path)
 	end
 
-	local file = assert(io.open(path, "r"))
-	local data, err = file:read("*a")
+	local file, err = io.open(path, "r")
+	assert(file, "failed to open file: " .. path .. " (" .. tostring(err) .. ")")
+
+	local data, read_err = file:read("*a")
 	file:close()
-	assert(data, err)
+	assert(data, read_err)
 	return data
 end
 
 local function write(path, text)
-	local file = assert(io.open(path, "w"))
-	local ok, err = file:write(text)
+	local file, err = io.open(path, "w")
+	assert(file, "failed to open file: " .. path .. " (" .. tostring(err) .. ")")
+
+	local ok, write_err = file:write(text)
 	file:close()
-	assert(ok, err)
+	assert(ok, write_err)
 end
 
 function grug:update() -- luacheck: ignore
