@@ -1,6 +1,6 @@
 # grug for Lua
 
-A Lua 5.1 implementation of [grug](https://github.com/grug-lang/grug).
+A Lua implementation of [grug](https://github.com/grug-lang/grug).
 
 ## Example
 
