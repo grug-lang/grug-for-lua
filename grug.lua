@@ -2816,6 +2816,13 @@ local function is_computercraft_checker()
 		return false
 	end
 
+	-- CC: Tweaked added this function. CC did not have it.
+	-- CC: Tweaked doesn't discard trailing newlines,
+	-- so doesn't need CC's byte reading workaround.
+	if os.epoch then -- luacheck: ignore os
+		return false
+	end
+
 	local version = os.version() -- luacheck: ignore os
 
 	-- Computers use CraftOS, whereas Turtles use TurtleOS.
