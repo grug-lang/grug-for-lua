@@ -1,0 +1,90 @@
+{
+    "entities": {
+        "Benchmark": {
+            "description": "Fibonacci benchmark.",
+            "on_functions": [
+                {
+                    "name": "on_run",
+                    "description": "Executes the fibonacci sequence generation."
+                }
+            ]
+        }
+    },
+    "game_functions": {
+        "List": {
+            "description": "Creates a new list.",
+            "return_type": "List"
+        },
+        "Dict": {
+            "description": "Creates a new dictionary.",
+            "return_type": "Dict"
+        },
+        "list_append": {
+            "description": "Appends a number to a list.",
+            "arguments": [
+                {
+                    "name": "list",
+                    "type": "List"
+                },
+                {
+                    "name": "val",
+                    "type": "number"
+                }
+            ]
+        },
+        "dict_has_key": {
+            "description": "Checks if a key exists.",
+            "arguments": [
+                {
+                    "name": "dict",
+                    "type": "Dict"
+                },
+                {
+                    "name": "key",
+                    "type": "number"
+                }
+            ],
+            "return_type": "bool"
+        },
+        "dict_get": {
+            "description": "Gets a value from a dictionary.",
+            "arguments": [
+                {
+                    "name": "dict",
+                    "type": "Dict"
+                },
+                {
+                    "name": "key",
+                    "type": "number"
+                }
+            ],
+            "return_type": "number"
+        },
+        "dict_set": {
+            "description": "Sets a value in a dictionary.",
+            "arguments": [
+                {
+                    "name": "dict",
+                    "type": "Dict"
+                },
+                {
+                    "name": "key",
+                    "type": "number"
+                },
+                {
+                    "name": "val",
+                    "type": "number"
+                }
+            ]
+        },
+        "assert_fib": {
+            "description": "Asserts that the list of Fibonacci numbers is correct.",
+            "arguments": [
+                {
+                    "name": "list",
+                    "type": "List"
+                }
+            ]
+        }
+    }
+}

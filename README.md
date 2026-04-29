@@ -68,7 +68,15 @@ This will:
 * regenerate `grug.lua`
 * run the full test suite
 
-## Benchmarking
+## Benchmarks
+
+### Benchmark: [benchmarks/minimal/](https://github.com/grug-lang/grug-for-lua/tree/main/benchmarks/minimal)
+
+![graph](benchmarks/minimal/results.svg)
+
+### Benchmark: [benchmarks/fibonacci/](https://github.com/grug-lang/grug-for-lua/tree/main/benchmarks/fibonacci)
+
+![graph](benchmarks/fibonacci/results.svg)
 
 ### Installing dependencies
 
