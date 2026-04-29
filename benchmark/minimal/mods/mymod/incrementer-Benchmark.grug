@@ -1,0 +1,9 @@
+i: number = 0
+
+on_increment() {
+    i = i + get_1()
+}
+
+on_print() {
+    print_number(i)
+}

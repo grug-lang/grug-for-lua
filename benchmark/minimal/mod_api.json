@@ -1,0 +1,32 @@
+{
+    "entities": {
+        "Benchmark": {
+            "description": "A benchmark.",
+            "on_functions": [
+                {
+                    "name": "on_increment",
+                    "description": "Called to increment a member variable."
+                },
+                {
+                    "name": "on_print",
+                    "description": "Prints the member variable."
+                }
+            ]
+        }
+    },
+    "game_functions": {
+        "get_1": {
+            "description": "Returns 1.",
+            "return_type": "number"
+        },
+        "print_number": {
+            "description": "Prints a number.",
+            "arguments": [
+                {
+                    "name": "nbr",
+                    "type": "number"
+                }
+            ]
+        }
+    }
+}
