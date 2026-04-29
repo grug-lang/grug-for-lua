@@ -1,8 +1,9 @@
 local json = require("json")
 
 -- CLI Arguments
-local batch_size = tonumber(arg[1]) or 1000
-local measured_seconds = tonumber(arg[2]) or 10
+local path = arg[1] or "results.json"
+local batch_size = tonumber(arg[2]) or 1000
+local measured_seconds = tonumber(arg[3]) or 10
 
 local utils = {}
 
@@ -46,7 +47,6 @@ function utils.benchmark(name, fn)
 end
 
 function utils.save_results()
-	local path = "results.json"
 	local f = assert(io.open(path, "w"))
 
 	local data = {
@@ -54,7 +54,7 @@ function utils.save_results()
 			batch_size = batch_size,
 			target_duration = measured_seconds,
 			lua_version = _VERSION,
-			jit = (jit ~= nil),
+			jit_version = jit and jit.version,
 		},
 		specializations = specializations,
 	}
@@ -62,7 +62,7 @@ function utils.save_results()
 	f:write(json.encode(data))
 	f:close()
 
-	print("Results saved to " .. path)
+	print("Results saved to " .. path .. "\n")
 end
 
 return utils

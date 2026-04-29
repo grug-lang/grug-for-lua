@@ -68,6 +68,29 @@ This will:
 * regenerate `grug.lua`
 * run the full test suite
 
+## Benchmarking
+
+### Installing dependencies
+
+```sh
+pip install matplotlib seaborn
+```
+
+### Running all benchmarks
+
+Customize this command to pass your own executable names and JSON output paths:
+```sh
+python run_benchmarks.py \
+  --impl lua lua5.5.json \
+  --impl luajit luajit.json
+```
+
+### Generating graphs for all results
+
+```sh
+python visualize_benchmarks.py
+```
+
 ## CI behavior
 
 The CI pipeline automatically:

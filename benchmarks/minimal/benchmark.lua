@@ -10,7 +10,7 @@ state:register("get_1", function(_state)
 end)
 
 state:register("print_number", function(_state, nbr)
-	print(nbr)
+	print("  Iterations: " .. nbr)
 end)
 
 local file = state:compile_grug_file("mymod/incrementer-Benchmark.grug")
@@ -21,8 +21,8 @@ local function lua_reference()
 	lua_entity.i = lua_entity.i + 1
 end
 
-utils.benchmark("Lua reference", lua_reference)
-print(lua_entity.i)
+utils.benchmark("lua reference", lua_reference)
+print("  Iterations: " .. lua_entity.i)
 
 -- This makes its specialization run WAY faster:
 -- PUC Lua: 3738735 -> 4166545 iterations
