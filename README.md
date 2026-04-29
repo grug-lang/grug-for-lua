@@ -18,7 +18,7 @@ local grug = require("grug")
 
 local state = grug.init()
 
-state:register_game_fn("print_string", function(state, str)
+state:register("print_string", function(state, str)
 	print(str)
 end)
 

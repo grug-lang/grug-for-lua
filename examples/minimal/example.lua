@@ -3,7 +3,7 @@ grug = require("grug")
 
 state = grug.init()
 
-state:register_game_fn("print_string", function(state, string)
+state:register("print_string", function(state, string)
 	print(string)
 end)
 

@@ -180,7 +180,7 @@ function grug:generate_file_from_json(input_json_text) -- luacheck: ignore
 	return ast_to_grug(ast)
 end
 
-function grug:register_game_fn(name, fn)
+function grug:register(name, fn)
 	self.game_fns[name] = fn
 end
 

@@ -187,12 +187,12 @@ local LUA_TO_C_ARG = {
 	end,
 }
 
-local function register_game_fns()
+local function register_fns()
 	for _, name in ipairs(game_fn_names) do
 		local c_fn = grug_lib["game_fn_" .. name]
 		local return_type = state.mod_api.game_functions[name].return_type
 
-		state:register_game_fn(name, function(st, ...) -- luacheck: ignore
+		state:register(name, function(st, ...) -- luacheck: ignore
 			local args = { ... }
 			local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
 
@@ -240,7 +240,7 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
 	end
 
 	state = new_state
-	register_game_fns()
+	register_fns()
 	return ffi.cast("void*", 42)
 end
 
