@@ -2,38 +2,47 @@ package.path = package.path .. ";../?.lua;../../?.lua"
 
 local utils = require("utils")
 local grug = require("grug")
+local ref = require("reference")
 
 local state = grug.init()
 
-state:register("List", function(_)
+local function List(_state)
 	return {}
-end)
-state:register("Dict", function(_)
-	return {}
-end)
+end
+state:register("List", List)
 
-state:register("list_append", function(_, list, val)
+local function Dict(_state)
+	return {}
+end
+state:register("Dict", Dict)
+
+local function list_append(_state, list, val)
 	table.insert(list, val)
-end)
+end
+state:register("list_append", list_append)
 
-state:register("dict_has_key", function(_, dict, key)
+local function dict_has_key(_state, dict, key)
 	return dict[key] ~= nil
-end)
+end
+state:register("dict_has_key", dict_has_key)
 
-state:register("dict_get", function(_, dict, key)
+local function dict_get(_state, dict, key)
 	return dict[key]
-end)
+end
+state:register("dict_get", dict_get)
 
-state:register("dict_set", function(_, dict, key, val)
+local function dict_set(_state, dict, key, val)
 	dict[key] = val
-end)
+end
+state:register("dict_set", dict_set)
 
-local function assert_fib(list)
+local function assert_fib_list(list)
 	if #list ~= 51 then
 		io.stderr:write("ERROR: generated Fibonacci sequence is incorrect\n")
 		io.stderr:write("  Expected #list to be 51, got " .. #list .. "\n")
 		os.exit(1)
 	end
+
 	local expected = 12586269025
 	if list[51] ~= expected then
 		io.stderr:write("ERROR: generated Fibonacci sequence is incorrect\n")
@@ -42,47 +51,28 @@ local function assert_fib(list)
 	end
 end
 
-state:register("assert_fib", function(_, list)
-	assert_fib(list)
-end)
+local function assert_fib(_, list)
+	assert_fib_list(list)
+end
+state:register("assert_fib", assert_fib)
+
+ref.init({
+	List = List,
+	Dict = Dict,
+	list_append = list_append,
+	dict_has_key = dict_has_key,
+	dict_get = dict_get,
+	dict_set = dict_set,
+	assert_fib = assert_fib,
+})
+
+local ref_on_run = ref.on_run
+utils.benchmark("lua reference", ref_on_run)
 
 local file = state:compile_grug_file("mymod/fib-Benchmark.grug")
 local e = file:create_entity()
 local on_run = e.on_run
 
-local function lua_helper_fib(n, memo)
-	if memo[n] then
-		return memo[n]
-	end
-
-	local result = n
-	if n > 1 then
-		result = lua_helper_fib(n - 1, memo) + lua_helper_fib(n - 2, memo)
-	end
-
-	memo[n] = result
-	return result
-end
-
-local function lua_helper_fib_list(n)
-	local fib_list = {}
-
-	local memo = {}
-
-	for i = 0, n do
-		table.insert(fib_list, lua_helper_fib(i, memo))
-	end
-
-	return fib_list
-end
-
-local lua_entity = { count = 50 }
-local function lua_reference()
-	local fib_numbers = lua_helper_fib_list(lua_entity.count)
-	assert_fib(fib_numbers)
-end
-
-utils.benchmark("lua reference", lua_reference)
 utils.benchmark("grug interpreter backend", function()
 	on_run(e)
 end)

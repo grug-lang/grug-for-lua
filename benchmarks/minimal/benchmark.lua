@@ -2,36 +2,41 @@ package.path = package.path .. ";../?.lua;../../?.lua"
 
 local utils = require("utils")
 local grug = require("grug")
+local ref = require("reference")
 
 local state = grug.init()
 
-state:register("get_1", function(_state)
+local function get_1(_state)
 	return 1
-end)
+end
+state:register("get_1", get_1)
 
-state:register("print_number", function(_state, nbr)
+local function print_number(_state, nbr)
 	print("  Iterations: " .. nbr)
-end)
+end
+state:register("print_number", print_number)
+
+ref.init({
+	get_1 = get_1,
+	print_number = print_number,
+})
+
+local ref_on_inc = ref.on_increment
+utils.benchmark("lua reference", ref_on_inc)
+ref.on_print()
 
 local file = state:compile_grug_file("mymod/incrementer-Benchmark.grug")
 local e = file:create_entity()
 
-local lua_entity = { i = 0 }
-local function lua_reference()
-	lua_entity.i = lua_entity.i + 1
-end
-
-utils.benchmark("lua reference", lua_reference)
-print("  Iterations: " .. lua_entity.i)
-
 -- This makes its specialization run WAY faster:
--- PUC Lua: 3738735 -> 4166545 iterations
 -- LuaJIT: 6598194 -> 7020901 iterations
+-- Lua 5.5: 3738735 -> 4166545 iterations
 local on_inc = e.on_increment
 
 utils.benchmark("grug interpreter backend", function()
 	on_inc(e)
 end)
+
 e:on_print()
 
 utils.save_results()
