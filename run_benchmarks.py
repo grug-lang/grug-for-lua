@@ -2,11 +2,12 @@
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 
 @contextmanager
@@ -19,8 +20,8 @@ def change_dir(path: Path):
         os.chdir(prev_cwd)
 
 
-def run(executable: str, json_filename: str):
-    result = subprocess.run([executable, "benchmark.lua", json_filename])
+def run(cmd: List[str], json_filename: str):
+    result = subprocess.run(cmd + ["benchmark.lua", json_filename])
     if result.returncode != 0:
         print(f"Command failed with exit code {result.returncode}")
         sys.exit(result.returncode)
@@ -34,7 +35,7 @@ def parse_args() -> Dict[str, str]:
         nargs=2,
         action="append",
         metavar=("EXECUTABLE", "JSON"),
-        help="Add implementation (e.g. lua lua5.5.json)",
+        help="Add implementation (e.g. --impl 'luajit -jv' luajit.json)",
         required=True,
     )
 
@@ -60,7 +61,7 @@ def main():
 
         with change_dir(d):
             for executable, json_file in configs.items():
-                run(executable, json_file)
+                run(shlex.split(executable), json_file)
 
 
 if __name__ == "__main__":

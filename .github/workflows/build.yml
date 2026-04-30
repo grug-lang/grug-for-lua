@@ -76,6 +76,19 @@ jobs:
         if: matrix.lua == 'luajit'
         run: git diff --exit-code
 
+      # TODO: Move this below the "Run Lua example (minimal)" step
+      - name: Run benchmarks
+        if: matrix.lua == 'luajit'
+        run: |
+          python run_benchmarks.py \
+            --impl "luajit -jv" luajit.json \
+            2>&1 | tee luajit.log
+
+          if grep -q 'NYI' luajit.log; then
+              echo "ERROR: NYI detected in LuaJIT trace output" >&2
+              exit 1
+          fi
+
       - name: Run tests
         if: matrix.lua == 'luajit'
         run: $LUA_CMD tests.lua "" ./grug-tests

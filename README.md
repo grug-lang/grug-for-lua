@@ -93,7 +93,16 @@ python run_benchmarks.py \
   --impl luajit luajit.json
 ```
 
+### Investigating slow benchmarks
+
+The CI throws an error if it finds any [LuaJIT NYI](https://github.com/tarantool/tarantool/wiki/LuaJIT-Not-Yet-Implemented) in the trace, as NYIs cause slowdown:
+```
+[TRACE --- grug.lua:2715 -- NYI: bytecode FNEW   at grug.lua:2724]
+```
+
 If a specific benchmark is unexpectedly slow even with LuaJIT, `cd` into its directory and run `luajit -jv benchmark.lua` to print its trace.
+
+You can also pass flags to `run_benchmarks.py` its executables: `--impl "luajit -jv" luajit.json`.
 
 ### Generating graphs for all results
 
