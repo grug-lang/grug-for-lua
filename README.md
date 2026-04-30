@@ -93,6 +93,8 @@ python run_benchmarks.py \
   --impl luajit luajit.json
 ```
 
+If a specific benchmark is unexpectedly slow even with LuaJIT, `cd` into its directory and run `luajit -jv benchmark.lua` to print its trace.
+
 ### Generating graphs for all results
 
 ```sh

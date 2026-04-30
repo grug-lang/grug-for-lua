@@ -793,14 +793,15 @@ function Parser:is_end_of_block()
 	)
 end
 
-function Parser:depth_scope(fn, ...)
+function Parser:enter_scope()
 	self.parsing_depth = self.parsing_depth + 1
 	if self.parsing_depth >= MAX_PARSING_DEPTH then
 		error("There is a function that contains more than " .. MAX_PARSING_DEPTH .. " levels of nested expressions")
 	end
-	local res = fn(self, ...)
+end
+
+function Parser:exit_scope()
 	self.parsing_depth = self.parsing_depth - 1
-	return res
 end
 
 local function get_type(type_str)
@@ -974,95 +975,103 @@ function Parser:parse_on_fn()
 end
 
 function Parser:parse_statements()
-	return self:depth_scope(function()
-		local stmts = {}
-		self:consume_space()
-		self:consume_type("OPEN_BRACE_TOKEN")
-		self:consume_type("NEWLINE_TOKEN")
-		self.indentation = self.indentation + 1
+	self:enter_scope()
 
-		local newline_allowed = false
-		while not self:is_end_of_block() do
-			local tok = self:peek()
-			if tok.type == "NEWLINE_TOKEN" then
-				if not newline_allowed then
-					error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx))
-				end
-				self.idx = self.idx + 1
-				newline_allowed = false
-				table.insert(stmts, Nodes.EmptyLine())
-			else
-				newline_allowed = true
-				self:consume_indentation()
-				table.insert(stmts, self:parse_statement())
-				self:consume_type("NEWLINE_TOKEN")
+	local stmts = {}
+	self:consume_space()
+	self:consume_type("OPEN_BRACE_TOKEN")
+	self:consume_type("NEWLINE_TOKEN")
+	self.indentation = self.indentation + 1
+
+	local newline_allowed = false
+	while not self:is_end_of_block() do
+		local tok = self:peek()
+		if tok.type == "NEWLINE_TOKEN" then
+			if not newline_allowed then
+				error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx))
 			end
-		end
-
-		if not newline_allowed and #stmts > 0 and stmts[#stmts].stmt_type == "EmptyLineStatement" then
-			error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx - 1))
-		end
-
-		self.indentation = self.indentation - 1
-		if self.indentation > 0 then
+			self.idx = self.idx + 1
+			newline_allowed = false
+			table.insert(stmts, Nodes.EmptyLine())
+		else
+			newline_allowed = true
 			self:consume_indentation()
+			table.insert(stmts, self:parse_statement())
+			self:consume_type("NEWLINE_TOKEN")
 		end
-		self:consume_type("CLOSE_BRACE_TOKEN")
-		return stmts
-	end)
+	end
+
+	if not newline_allowed and #stmts > 0 and stmts[#stmts].stmt_type == "EmptyLineStatement" then
+		error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx - 1))
+	end
+
+	self.indentation = self.indentation - 1
+	if self.indentation > 0 then
+		self:consume_indentation()
+	end
+	self:consume_type("CLOSE_BRACE_TOKEN")
+
+	self:exit_scope()
+	return stmts
 end
 
 function Parser:parse_statement()
-	return self:depth_scope(function()
-		local tok = self:peek()
-		if tok.type == "WORD_TOKEN" then
-			local next_t = self:peek(1)
-			if next_t.type == "OPEN_PARENTHESIS_TOKEN" then
-				return Nodes.CallStmt(self:parse_call())
-			end
-			if next_t.type == "COLON_TOKEN" or next_t.type == "SPACE_TOKEN" then
-				return self:parse_local_variable()
-			end
+	self:enter_scope()
+
+	local res
+	local tok = self:peek()
+	if tok.type == "WORD_TOKEN" then
+		local next_t = self:peek(1)
+		if next_t.type == "OPEN_PARENTHESIS_TOKEN" then
+			res = Nodes.CallStmt(self:parse_call())
+		elseif next_t.type == "COLON_TOKEN" or next_t.type == "SPACE_TOKEN" then
+			res = self:parse_local_variable()
+		else
 			error(
 				"Expected '(', or ':', or ' =' after the word '"
 					.. tok.value
 					.. "' on line "
 					.. self:get_token_line_number(self.idx)
 			)
-		elseif tok.type == "IF_TOKEN" then
-			self.idx = self.idx + 1
-			return self:parse_if_statement()
-		elseif tok.type == "RETURN_TOKEN" then
-			self.idx = self.idx + 1
-			if self:peek().type == "NEWLINE_TOKEN" then
-				return Nodes.Return()
-			end
-			self:consume_space()
-			return Nodes.Return(self:parse_expression())
-		elseif tok.type == "WHILE_TOKEN" then
-			self.idx = self.idx + 1
-			return self:parse_while_statement()
-		elseif tok.type == "BREAK_TOKEN" or tok.type == "CONTINUE_TOKEN" then
-			if self.loop_depth == 0 then
-				local word = tok.type == "BREAK_TOKEN" and "break" or "continue"
-				error("There is a " .. word .. " statement that isn't inside of a while loop")
-			end
-			self.idx = self.idx + 1
-			return tok.type == "BREAK_TOKEN" and Nodes.Break() or Nodes.Continue()
-		elseif tok.type == "NEWLINE_TOKEN" then
-			self.idx = self.idx + 1
-			return Nodes.EmptyLine()
-		elseif tok.type == "COMMENT_TOKEN" then
-			self.idx = self.idx + 1
-			return Nodes.Comment(tok.value)
 		end
+	elseif tok.type == "IF_TOKEN" then
+		self.idx = self.idx + 1
+		res = self:parse_if_statement()
+	elseif tok.type == "RETURN_TOKEN" then
+		self.idx = self.idx + 1
+		if self:peek().type == "NEWLINE_TOKEN" then
+			res = Nodes.Return()
+		else
+			self:consume_space()
+			res = Nodes.Return(self:parse_expression())
+		end
+	elseif tok.type == "WHILE_TOKEN" then
+		self.idx = self.idx + 1
+		res = self:parse_while_statement()
+	elseif tok.type == "BREAK_TOKEN" or tok.type == "CONTINUE_TOKEN" then
+		if self.loop_depth == 0 then
+			local word = tok.type == "BREAK_TOKEN" and "break" or "continue"
+			error("There is a " .. word .. " statement that isn't inside of a while loop")
+		end
+		self.idx = self.idx + 1
+		res = tok.type == "BREAK_TOKEN" and Nodes.Break() or Nodes.Continue()
+	elseif tok.type == "NEWLINE_TOKEN" then
+		self.idx = self.idx + 1
+		res = Nodes.EmptyLine()
+	elseif tok.type == "COMMENT_TOKEN" then
+		self.idx = self.idx + 1
+		res = Nodes.Comment(tok.value)
+	else
 		error(
 			"Expected a statement token, but got token type "
 				.. tok.type
 				.. " on line "
 				.. self:get_token_line_number(self.idx)
 		)
-	end)
+	end
+
+	self:exit_scope()
+	return res
 end
 
 function Parser:parse_local_variable()
@@ -1135,36 +1144,42 @@ function Parser:parse_global_variable()
 end
 
 function Parser:parse_if_statement()
-	return self:depth_scope(function()
-		self:consume_space()
-		local cond = self:parse_expression()
-		local if_body = self:parse_statements()
-		local else_body = {}
+	self:enter_scope()
 
-		local tok = self.idx <= #self.tokens and self:peek()
-		if tok and tok.type == "SPACE_TOKEN" then
-			self.idx = self.idx + 1
-			self:consume_type("ELSE_TOKEN")
-			if self:peek().type == "SPACE_TOKEN" and self:peek(1).type == "IF_TOKEN" then
-				self.idx = self.idx + 2
-				else_body = { self:parse_if_statement() }
-			else
-				else_body = self:parse_statements()
-			end
+	self:consume_space()
+	local cond = self:parse_expression()
+	local if_body = self:parse_statements()
+	local else_body = {}
+
+	local tok = self.idx <= #self.tokens and self:peek()
+	if tok and tok.type == "SPACE_TOKEN" then
+		self.idx = self.idx + 1
+		self:consume_type("ELSE_TOKEN")
+		if self:peek().type == "SPACE_TOKEN" and self:peek(1).type == "IF_TOKEN" then
+			self.idx = self.idx + 2
+			else_body = { self:parse_if_statement() }
+		else
+			else_body = self:parse_statements()
 		end
-		return Nodes.If(cond, if_body, else_body)
-	end)
+	end
+
+	local res = Nodes.If(cond, if_body, else_body)
+	self:exit_scope()
+	return res
 end
 
 function Parser:parse_while_statement()
-	return self:depth_scope(function()
-		self:consume_space()
-		local cond = self:parse_expression()
-		self.loop_depth = self.loop_depth + 1
-		local body = self:parse_statements()
-		self.loop_depth = self.loop_depth - 1
-		return Nodes.While(cond, body)
-	end)
+	self:enter_scope()
+
+	self:consume_space()
+	local cond = self:parse_expression()
+	self.loop_depth = self.loop_depth + 1
+	local body = self:parse_statements()
+	self.loop_depth = self.loop_depth - 1
+
+	local res = Nodes.While(cond, body)
+	self:exit_scope()
+	return res
 end
 
 local function str_to_number(s)
@@ -1182,46 +1197,51 @@ local function str_to_number(s)
 end
 
 function Parser:parse_primary()
-	return self:depth_scope(function()
-		local t = self:consume()
-		if t.type == "OPEN_PARENTHESIS_TOKEN" then
-			local expr = Nodes.Parenthesized(self:parse_expression())
-			self:consume_type("CLOSE_PARENTHESIS_TOKEN")
-			return expr
-		elseif t.type == "TRUE_TOKEN" then
-			return Nodes.True()
-		elseif t.type == "FALSE_TOKEN" then
-			return Nodes.False()
-		elseif t.type == "STRING_TOKEN" then
-			return Nodes.String(t.value)
-		elseif t.type == "ENTITY_TOKEN" then
-			return Nodes.Entity(t.value)
-		elseif t.type == "RESOURCE_TOKEN" then
-			return Nodes.Resource(t.value)
-		elseif t.type == "WORD_TOKEN" then
-			return Nodes.Identifier(t.value)
-		elseif t.type == "NUMBER_TOKEN" then
-			return Nodes.Number(str_to_number(t.value), t.value)
-		end
+	self:enter_scope()
+
+	local res
+	local t = self:consume()
+	if t.type == "OPEN_PARENTHESIS_TOKEN" then
+		local expr = Nodes.Parenthesized(self:parse_expression())
+		self:consume_type("CLOSE_PARENTHESIS_TOKEN")
+		res = expr
+	elseif t.type == "TRUE_TOKEN" then
+		res = Nodes.True()
+	elseif t.type == "FALSE_TOKEN" then
+		res = Nodes.False()
+	elseif t.type == "STRING_TOKEN" then
+		res = Nodes.String(t.value)
+	elseif t.type == "ENTITY_TOKEN" then
+		res = Nodes.Entity(t.value)
+	elseif t.type == "RESOURCE_TOKEN" then
+		res = Nodes.Resource(t.value)
+	elseif t.type == "WORD_TOKEN" then
+		res = Nodes.Identifier(t.value)
+	elseif t.type == "NUMBER_TOKEN" then
+		res = Nodes.Number(str_to_number(t.value), t.value)
+	else
 		error(
 			"Expected a primary expression token, but got token type "
 				.. t.type
 				.. " on line "
 				.. self:get_token_line_number(self.idx - 1)
 		)
-	end)
+	end
+
+	self:exit_scope()
+	return res
 end
 
 function Parser:parse_call()
-	return self:depth_scope(function()
-		local expr = self:parse_primary()
-		if self:peek().type ~= "OPEN_PARENTHESIS_TOKEN" then
-			return expr
-		end
-		if expr.name == nil then
-			error("Unexpected '(' after non-identifier at line " .. self:get_token_line_number(self.idx))
-		end
+	self:enter_scope()
 
+	local res
+	local expr = self:parse_primary()
+	if self:peek().type ~= "OPEN_PARENTHESIS_TOKEN" then
+		res = expr
+	elseif expr.name == nil then
+		error("Unexpected '(' after non-identifier at line " .. self:get_token_line_number(self.idx))
+	else
 		local fn_name = expr.name
 		if fn_name:sub(1, 7) == "helper_" then
 			self.called_helper_fn_names[fn_name] = true
@@ -1231,35 +1251,43 @@ function Parser:parse_call()
 		self.idx = self.idx + 1
 		if self:peek().type == "CLOSE_PARENTHESIS_TOKEN" then
 			self.idx = self.idx + 1
-			return call
+			res = call
+		else
+			repeat
+				table.insert(call.arguments, self:parse_expression())
+				if self:peek().type == "COMMA_TOKEN" then
+					self.idx = self.idx + 1
+					self:consume_space()
+				else
+					self:consume_type("CLOSE_PARENTHESIS_TOKEN")
+					break
+				end
+			until false
+			res = call
 		end
+	end
 
-		repeat
-			table.insert(call.arguments, self:parse_expression())
-			if self:peek().type == "COMMA_TOKEN" then
-				self.idx = self.idx + 1
-				self:consume_space()
-			else
-				self:consume_type("CLOSE_PARENTHESIS_TOKEN")
-				break
-			end
-		until false
-		return call
-	end)
+	self:exit_scope()
+	return res
 end
 
 function Parser:parse_unary()
-	return self:depth_scope(function()
-		local t = self:peek()
-		if t.type == "MINUS_TOKEN" or t.type == "NOT_TOKEN" then
-			self.idx = self.idx + 1
-			if t.type == "NOT_TOKEN" then
-				self:consume_space()
-			end
-			return Nodes.Unary(t.type, self:parse_unary())
+	self:enter_scope()
+
+	local res
+	local t = self:peek()
+	if t.type == "MINUS_TOKEN" or t.type == "NOT_TOKEN" then
+		self.idx = self.idx + 1
+		if t.type == "NOT_TOKEN" then
+			self:consume_space()
 		end
-		return self:parse_call()
-	end)
+		res = Nodes.Unary(t.type, self:parse_unary())
+	else
+		res = self:parse_call()
+	end
+
+	self:exit_scope()
+	return res
 end
 
 local function binary_op(next_fn, ops, ctor)
@@ -1299,7 +1327,10 @@ Parser.parse_and = binary_op(Parser.parse_equality, { AND_TOKEN = true }, Nodes.
 Parser.parse_or = binary_op(Parser.parse_and, { OR_TOKEN = true }, Nodes.Logical)
 
 function Parser:parse_expression()
-	return self:depth_scope(self.parse_or)
+	self:enter_scope()
+	local res = self:parse_or()
+	self:exit_scope()
+	return res
 end
 
 -- BEGIN 04_type_propagator.lua
