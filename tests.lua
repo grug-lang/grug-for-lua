@@ -48,10 +48,13 @@ ffi.cdef([[
         void* (*create_grug_state)(const char* mod_api_path, const char* mods_dir_path);
         void (*destroy_grug_state)(void* state_ptr);
         void* (*compile_grug_file)(void* state_ptr, const char* file_path, const char** error_out);
-        void (*init_globals)(void* state_ptr, void* file_id);
-        void (*call_export_fn)(void* state_ptr, void* file_id, const char* fn_name, GrugValueUnion* args, size_t args_len);
-        bool (*dump_file_to_json)(void* state_ptr, const char* input_grug_buffer, char* output_json_buffer, size_t output_buffer_len);
-        bool (*generate_file_from_json)(void* state_ptr, const char* input_json_buffer, char* output_grug_buffer, size_t output_buffer_len);
+		void (*destroy_grug_file)(void* state_ptr, void* file_id);
+		void* (*create_entity)(void* state_ptr, void* file_id, const char** error_out);
+		void (*destroy_entity)(void* state_ptr, void* entity_id);
+		void (*update)(void* state_ptr, const char** error_out);
+        void (*call_export_fn)(void* state_ptr, void* entity_id, const char* fn_name, GrugValueUnion* args, size_t args_len);
+        bool (*grug_to_json)(void* state_ptr, const char* input_grug_buffer, char* output_json_buffer, size_t output_buffer_len);
+        bool (*json_to_grug)(void* state_ptr, const char* input_json_buffer, char* output_grug_buffer, size_t output_buffer_len);
         void (*game_fn_error)(void* state_ptr, const char* reason);
     } grug_state_vtable;
 
@@ -117,13 +120,13 @@ local grug_lib = ffi.load(grug_tests_path .. "/build/libtests.so")
 
 local callbacks = {}
 
-local state = nil
+local states = {} -- int -> state
+local files = {} -- int -> GrugFile
+local entities = {} -- int -> Entity
 
-local files = {} -- Ensures compiled files are not prematurely GCed.
+local last_file_id = nil
 
 local last_error = nil
-
-local current_entity = nil
 
 local grug_runtime_err = nil
 
@@ -140,22 +143,6 @@ local runtime_error_type_values = {
 local function custom_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path)
 	local err = assert(runtime_error_type_values[grug_runtime_error_type])
 	grug_lib.grug_tests_runtime_error_handler(reason, err, on_fn_name, on_fn_path)
-end
-
--- We use pcall in entity callbacks because we can't propagate Lua errors to host fns.
-local function handle_entity_pcall_err(ok, err)
-	if not ok then
-		local err_type = type(err) == "table" and err.type
-		if
-			err_type == "STACK_OVERFLOW"
-			or err_type == "TIME_LIMIT_EXCEEDED"
-			or err_type == "RERAISED_GAME_FN_ERROR"
-		then
-			grug_runtime_err = err
-		else
-			print_traceback(err)
-		end
-	end
 end
 
 local function c_to_lua_value(value, typ)
@@ -187,7 +174,7 @@ local LUA_TO_C_ARG = {
 	end,
 }
 
-local function register_fns()
+local function register_fns(state)
 	for _, name in ipairs(game_fn_names) do
 		local c_fn = grug_lib["game_fn_" .. name]
 		local return_type = state.mod_api.game_functions[name].return_type
@@ -221,16 +208,40 @@ local function register_fns()
 	end
 end
 
+local function is_dir(path)
+	if path == ".grug-tmp/hot_reloading" then
+		return true
+	elseif path == ".grug-tmp/hot_reloading/code_reloading-D.grug" then
+		return false
+	else
+		error('Missing elseif for is_dir("' .. path .. '")')
+	end
+end
+
+local function list_dir(path)
+	if path == ".grug-tmp" then
+		return { "hot_reloading" }
+	elseif path == ".grug-tmp/hot_reloading" then
+		return { "code_reloading-D.grug" }
+	else
+		error('Missing elseif for list_dir("' .. path .. '")')
+	end
+end
+
 function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
 	local mod_api_path = ffi.string(mod_api_path_)
 	local mods_dir_path = ffi.string(mods_dir_path_)
 
-	local new_state
+	local state
 	local ok, err = pcall(function()
-		new_state = grug.init({
+		state = grug.init({
 			runtime_error_handler = custom_runtime_error_handler,
 			mod_api_path = mod_api_path,
 			mods_dir_path = mods_dir_path,
+			fs = {
+				list_dir = list_dir,
+				is_dir = is_dir,
+			},
 		})
 	end)
 
@@ -239,62 +250,156 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
 		return nil
 	end
 
-	state = new_state
-	register_fns()
-	return ffi.cast("void*", 42)
+	register_fns(state)
+
+	local state_id = #states + 1
+	states[state_id] = state
+	return ffi.cast("void*", state_id)
 end
 
-function callbacks.destroy_grug_state(state_ptr) end -- luacheck: ignore
+function callbacks.destroy_grug_state(state_ptr_)
+	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
+	states[state_ptr] = nil
+end
 
-function callbacks.compile_grug_file(state_ptr, file_path_, error_out_) -- luacheck: ignore
+local function get_c_error_string(err)
+	last_error = ffi.new("char[?]", #err + 1)
+	ffi.copy(last_error, err)
+	return last_error
+end
+
+-- Turns `./grug.lua:731: Expected token` into `Expected token`.
+-- This allows grug.lua to use `error("msg")` instead of `error("msg", 0)`.
+local function get_msg_from_lua_error(err)
+	return err:gsub("^.-:.-: ", "")
+end
+
+function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
+	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
 	local file_path = ffi.string(file_path_)
+
+	local state = states[state_ptr]
 
 	local file
 	local ok, err = pcall(function()
-		file = state:compile_grug_file(file_path)
+		if file_path == "hot_reloading/code_reloading-D.grug" then
+			state:update()
+			file = state.mods["hot_reloading"]["code_reloading-D.grug"]
+		else
+			file = state:_compile_grug_file(file_path)
+		end
 	end)
 
 	if not ok then
-		-- Removes the leading path, like `./grug.lua:915: msg`.
-		-- This way we can use `error("msg")` instead of `error("msg", 0)`.
-		err = err:gsub("^.-:.-: ", "")
-
-		last_error = ffi.new("char[?]", #err + 1)
-		ffi.copy(last_error, err)
-		error_out_[0] = last_error
+		err = get_msg_from_lua_error(err)
+		error_out_[0] = get_c_error_string(err)
 		return nil
 	end
 
 	local file_id = #files + 1
 	files[file_id] = file
+	last_file_id = file_id
+	error_out_[0] = nil
 	return ffi.cast("void*", file_id)
 end
 
-function callbacks.init_globals(state_ptr, file_id_) -- luacheck: ignore
+function callbacks.destroy_grug_file(_state_ptr_, file_id_)
 	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
 
-	assert(state)
-	state.next_id = 42
+	-- Asserts that file.entities has weak keys
+	collectgarbage()
+	local count = 0
+	for _entity in pairs(files[file_id].entities) do -- luacheck: ignore
+		count = count + 1
+	end
+	assert(count == 0)
 
-	local grug_file = files[file_id]
-	assert(grug_file)
-
-	handle_entity_pcall_err(pcall(function()
-		current_entity = grug_file:create_entity()
-	end))
+	files[file_id] = nil
 end
 
-function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_) -- luacheck: ignore
+function callbacks.create_entity(state_ptr_, file_id_, error_out_)
+	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
 	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
+
+	local state = states[state_ptr]
+
+	grug_runtime_err = nil
+
+	state.next_id = 42
+
+	local file = files[file_id]
+
+	local entity
+	local ok, err = pcall(function()
+		entity = file:create_entity()
+	end)
+
+	if not ok then
+		local err_type = type(err) == "table" and err.type
+		if
+			err_type == "STACK_OVERFLOW"
+			or err_type == "TIME_LIMIT_EXCEEDED"
+			or err_type == "RERAISED_GAME_FN_ERROR"
+		then
+			error_out_[0] = get_c_error_string(err.reason)
+
+			-- Necessary, as C doesn't propagate exceptions.
+			grug_runtime_err = err
+
+			return ffi.cast("void*", -1)
+		else
+			print_traceback(err)
+			return ffi.cast("void*", -1)
+		end
+	end
+
+	local entity_id = #entities + 1
+	entities[entity_id] = entity
+	error_out_[0] = nil
+	return ffi.cast("void*", entity_id)
+end
+
+function callbacks.destroy_entity(_state_ptr_, entity_id_)
+	local entity_id = tonumber(ffi.cast("uintptr_t", entity_id_))
+	entities[entity_id] = nil
+end
+
+function callbacks.update(state_ptr_, error_out_)
+	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
+	local state = states[state_ptr]
+
+	local file
+	local ok, err = pcall(function()
+		state:update()
+	end)
+
+	if not ok then
+		-- TODO: Check that this block is reachable if a typo is introduced in the example grug file
+		--       Consider adding another hot reloading test which checks that state:update() doesn't fail silently
+		error_out_[0] = get_c_error_string(err)
+		return
+	end
+
+	-- We have to manually overwrite the old file in the files list,
+	-- purely because test_grug.py tries to emulate the grug implementation.
+	file = state.mods["hot_reloading"]["code_reloading-D.grug"]
+	files[last_file_id] = file
+
+	error_out_[0] = nil
+end
+
+function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_len_)
+	local entity_id = tonumber(ffi.cast("uintptr_t", entity_id_))
 	local fn_name = ffi.string(fn_name_)
 	local args_len = tonumber(ffi.cast("uintptr_t", args_len_))
 
-	local grug_file = files[file_id]
-	assert(grug_file)
-	assert(current_entity)
+	grug_runtime_err = nil
 
-	local on_fn_decl = grug_file.on_fns[fn_name]
-	assert(on_fn_decl)
+	local entity = entities[entity_id]
+
+	local file = entity.file
+
+	local on_fn_decl = file.on_fns[fn_name]
 	assert(#on_fn_decl.arguments == args_len)
 
 	local lua_args = {}
@@ -303,21 +408,37 @@ function callbacks.call_export_fn(state_ptr, file_id_, fn_name_, args, args_len_
 		table.insert(lua_args, c_to_lua_value(args[i], argument_decl.type_name))
 	end
 
-	grug_runtime_err = nil
-	handle_entity_pcall_err(pcall(function()
-		current_entity:_run_on_fn(fn_name, unpack(lua_args))
-	end))
+	local ok, err = pcall(function()
+		entity:_run_on_fn(fn_name, unpack(lua_args))
+	end)
+
+	if not ok then
+		local err_type = type(err) == "table" and err.type
+		if
+			err_type == "STACK_OVERFLOW"
+			or err_type == "TIME_LIMIT_EXCEEDED"
+			or err_type == "RERAISED_GAME_FN_ERROR"
+		then
+			-- Necessary, as C doesn't propagate exceptions.
+			grug_runtime_err = err
+		else
+			print_traceback(err)
+		end
+	end
 end
 
 local function make_io_callback(method)
-	return function(state_ptr, input_buffer_, output_buffer_, output_buffer_len) -- luacheck: ignore
+	return function(state_ptr_, input_buffer_, output_buffer_, output_buffer_len)
+		local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
+		local state = states[state_ptr]
+
 		local input_text = ffi.string(input_buffer_)
-		assert(state)
 		local ok, result = pcall(state[method], state, input_text)
 		if not ok then
 			print_traceback(result)
 			return true
 		end
+
 		-- +1 for the null terminator that ffi.copy appends
 		if #result + 1 > output_buffer_len then
 			print_traceback(
@@ -330,13 +451,14 @@ local function make_io_callback(method)
 			)
 			return true
 		end
+
 		ffi.copy(output_buffer_, result)
 		return false
 	end
 end
 
-callbacks.dump_file_to_json = make_io_callback("dump_file_to_json")
-callbacks.generate_file_from_json = make_io_callback("generate_file_from_json")
+callbacks.grug_to_json = make_io_callback("grug_to_json")
+callbacks.json_to_grug = make_io_callback("json_to_grug")
 
 local function _test_run_game_fn(self, name, ...)
 	local result = original_run_game_fn(self, name, ...)
@@ -345,8 +467,7 @@ local function _test_run_game_fn(self, name, ...)
 		local reason = game_fn_error_reason
 		game_fn_error_reason = nil
 
-		assert(state)
-		state.runtime_error_handler(reason, "GAME_FN_ERROR", self.fn_name, self.file.relative_path)
+		self.state.runtime_error_handler(reason, "GAME_FN_ERROR", self.fn_name, self.file.relative_path)
 		error({ type = "RERAISED_GAME_FN_ERROR", reason = reason })
 	end
 
@@ -355,19 +476,26 @@ end
 
 grug._GrugEntity._run_game_fn = _test_run_game_fn
 
-function callbacks.game_fn_error(state_ptr, message_) -- luacheck: ignore
-	game_fn_error_reason = ffi.string(message_)
+function callbacks.game_fn_error(_state_ptr_, reason_)
+	game_fn_error_reason = ffi.string(reason_)
 end
 
 local vtable = ffi.new("grug_state_vtable", {
 	create_grug_state = callbacks.create_grug_state,
 	destroy_grug_state = callbacks.destroy_grug_state,
 	compile_grug_file = callbacks.compile_grug_file,
-	init_globals = callbacks.init_globals,
+	destroy_grug_file = callbacks.destroy_grug_file,
+	create_entity = callbacks.create_entity,
+	destroy_entity = callbacks.destroy_entity,
+	update = callbacks.update,
 	call_export_fn = callbacks.call_export_fn,
-	dump_file_to_json = callbacks.dump_file_to_json,
-	generate_file_from_json = callbacks.generate_file_from_json,
+	grug_to_json = callbacks.grug_to_json,
+	json_to_grug = callbacks.json_to_grug,
 	game_fn_error = callbacks.game_fn_error,
 })
 
 grug_lib.grug_tests_run(grug_tests_path .. "/tests", grug_tests_path .. "/mod_api.json", vtable, whitelisted_test)
+
+assert(#states == 0)
+assert(#files == 0)
+assert(#entities == 0)

@@ -10,27 +10,36 @@ Run the minimal example:
 cd examples/minimal && lua example.lua
 ````
 
-### `example.lua`
+Here is `example.lua`:
 
 ```lua
+-- grug.lua is two directories up
 package.path = package.path .. ";../../?.lua"
+
 local grug = require("grug")
 
-local state = grug.init()
+-- You can pass your own list_dir(path) and is_dir(path) instead:
+-- grug.init({ fs = { list_dir = list_dir, is_dir = is_dir, } })
+local state = grug.init({
+	grug_files = { "animals/labrador-Dog.grug" },
+})
 
-state:register("print_string", function(state, str)
-	print(str)
+state:register("print_string", function(state, string)
+	print(string)
 end)
 
-local file = state:compile_grug_file("animals/labrador-Dog.grug")
+local file = state.mods["animals"]["labrador-Dog.grug"]
 local dog1 = file:create_entity()
 local dog2 = file:create_entity()
 
-dog1:on_bark("woof")
-dog2:on_bark("arf")
+while true do
+	state:update()
+	dog1:on_bark("woof")
+	dog2:on_bark("arf")
+end
 ```
 
-### `animals/labrador-Dog.grug`
+Here is `animals/labrador-Dog.grug`:
 
 ```py
 on_bark(sound: string) {
@@ -43,7 +52,7 @@ on_bark(sound: string) {
 }
 ```
 
-### Output
+It repeatedly prints this, and you can play with the grug file without having to restart the program:
 
 ```
 woof
@@ -99,6 +108,8 @@ The CI throws an error if it finds any [LuaJIT NYI](https://github.com/tarantool
 ```
 [TRACE --- grug.lua:2715 -- NYI: bytecode FNEW   at grug.lua:2724]
 ```
+
+See Cloudflare's blog post [LuaJIT Hacking: Getting next() out of the NYI list](https://blog.cloudflare.com/luajit-hacking-getting-next-out-of-the-nyi-list/) for more information.
 
 If a specific benchmark is unexpectedly slow even with LuaJIT, `cd` into its directory and run `luajit -jv benchmark.lua` to print its trace.
 

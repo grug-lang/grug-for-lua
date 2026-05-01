@@ -1,5 +1,18 @@
 local grug = {}
-grug.__index = grug
+grug.__index = function(self, key)
+	-- property-style access: state.mods
+	if key == "mods" then
+		if self._mods == nil then
+			self:update()
+		end
+
+		assert(self._mods, "mods not initialized")
+		return self._mods
+	end
+
+	-- normal method lookup
+	return grug[key]
+end
 
 -- tests.lua patches grug._GrugEntity._run_game_fn().
 grug._GrugEntity = Entity
@@ -24,7 +37,7 @@ end
 
 local is_computercraft = is_computercraft_checker()
 
-local function read_computercraft(path)
+local function _read_computercraft(path)
 	-- We use binary mode to preserve the trailing newline
 	-- at the end of the file.
 	-- ComputerCraft 1.33 replaces Lua's default io API
@@ -55,9 +68,9 @@ local function read_computercraft(path)
 	return data
 end
 
-local function read(path)
+local function _read(path)
 	if is_computercraft then
-		return read_computercraft(path)
+		return _read_computercraft(path)
 	end
 
 	local file, err = io.open(path, "r")
@@ -69,8 +82,144 @@ local function read(path)
 	return data
 end
 
-function grug:update() -- luacheck: ignore
-	-- TODO: Implement hot reloading
+function grug:_recompile_with_hot_reload(rel_path, existing)
+	local new_file = self:_compile_grug_file(rel_path)
+
+	-- Transfer existing entities from the old file to the new version
+	if existing then
+		for entity, _ in pairs(existing.entities or {}) do
+			entity.file = new_file
+			entity:_init_globals(new_file.global_variables)
+			new_file.entities[entity] = true
+		end
+	end
+
+	return new_file
+end
+
+local function _update_from_list(self)
+	for _, rel_path in ipairs(self.grug_files) do
+		local current_dir = self._mods
+		local parts = {}
+		for part in rel_path:gmatch("[^/]+") do
+			table.insert(parts, part)
+		end
+
+		-- Build tree
+		for i = 1, #parts - 1 do
+			local dir_name = parts[i]
+			current_dir.dirs[dir_name] = current_dir.dirs[dir_name] or GrugDir.new(dir_name)
+			current_dir = current_dir.dirs[dir_name]
+		end
+
+		local filename = parts[#parts]
+		local existing = current_dir.files[filename]
+		local abs_path = self.mods_dir_path .. "/" .. rel_path
+
+		-- Logic check: only recompile if content has changed (version mismatch)
+		local text = self.fs.read(abs_path)
+		local current_version = self.fs.get_file_version(abs_path, text)
+
+		if not existing or existing.version ~= current_version then
+			current_dir.files[filename] = self:_recompile_with_hot_reload(rel_path, existing)
+		end
+	end
+end
+
+-- This (re)compiles grug files using mark-and-sweep.
+function grug:update()
+	if self._mods == nil then
+		self._mods = GrugDir.new("mods")
+	end
+
+	-- Use the provided file list if available
+	if self.grug_files then
+		return _update_from_list(self)
+	end
+
+	-- Otherwise, fall back to directory scanning
+	if type(self.fs.list_dir) ~= "function" or type(self.fs.is_dir) ~= "function" then
+		error("Error: grug:update() requires list_dir and is_dir OR a grug_files list.")
+	end
+
+	local seen_files = {}
+	local seen_dirs = {}
+
+	local function update_dir(current_path, grug_dir)
+		-- Mark this directory as visited
+		seen_dirs[current_path] = true
+
+		-- Mark phase: scan disk
+		local entries = self.fs.list_dir(current_path)
+		if entries then
+			for _, entry_name in ipairs(entries) do
+				local entry_path = current_path .. "/" .. entry_name
+
+				if self.fs.is_dir(entry_path) then
+					local sub = grug_dir.dirs[entry_name]
+					if sub == nil then
+						sub = GrugDir.new(entry_name)
+						grug_dir.dirs[entry_name] = sub
+					end
+					update_dir(entry_path, sub)
+
+				-- Inside grug:update() mark-and-sweep scan
+				elseif entry_name:sub(-5) == ".grug" then
+					local rel_path = entry_path:sub(#self.mods_dir_path + 2)
+					seen_files[rel_path] = true
+
+					local existing = grug_dir.files[entry_name]
+					local text = self.fs.read(entry_path)
+					local current_version = self.fs.get_file_version(entry_path, text)
+
+					if not existing or existing.version ~= current_version then
+						grug_dir.files[entry_name] = self:_recompile_with_hot_reload(rel_path, existing)
+					end
+				end
+			end
+		end
+
+		-- Sweep files
+		for name, file in pairs(grug_dir.files) do
+			if not seen_files[file.relative_path] then
+				grug_dir.files[name] = nil
+			end
+		end
+
+		-- Sweep subdirectories
+		for name, _ in pairs(grug_dir.dirs) do
+			local sub_path = current_path .. "/" .. name
+			if not seen_dirs[sub_path] then
+				grug_dir.dirs[name] = nil
+			end
+		end
+	end
+
+	local root = self._mods
+
+	-- Process each top-level mod directory
+	local mod_dirs = self.fs.list_dir(self.mods_dir_path)
+	if mod_dirs then
+		for _, mod_dir_name in ipairs(mod_dirs) do
+			local mod_dir_path = self.mods_dir_path .. "/" .. mod_dir_name
+			if self.fs.is_dir(mod_dir_path) then
+				local sub = root.dirs[mod_dir_name]
+				if sub == nil then
+					sub = GrugDir.new(mod_dir_name)
+					root.dirs[mod_dir_name] = sub
+				end
+				update_dir(mod_dir_path, sub)
+			end
+		end
+	end
+
+	-- Sweep removed top-level dirs
+	for name, _ in pairs(root.dirs) do
+		local mod_path = self.mods_dir_path .. "/" .. name
+		if not seen_dirs[mod_path] then
+			root.dirs[name] = nil
+		end
+	end
 end
 
 local function check_custom_id_is_pascal(type_name)
@@ -123,10 +272,12 @@ local function get_file_entity_type(grug_filename)
 	return entity_type
 end
 
-function grug:compile_grug_file(grug_file_relative_path)
+function grug:_compile_grug_file(grug_file_relative_path)
 	local grug_file_absolute_path = self.mods_dir_path .. "/" .. grug_file_relative_path
 
-	local text = read(grug_file_absolute_path)
+	local text = self.fs.read(grug_file_absolute_path)
+
+	local version = self.fs.get_file_version(grug_file_absolute_path, text)
 
 	local tokens = tokenize(text)
 
@@ -165,17 +316,18 @@ function grug:compile_grug_file(grug_file_relative_path)
 		helper_fns,
 		self.game_fns,
 		game_fn_return_types,
-		self
+		self,
+		version
 	)
 end
 
-function grug:dump_file_to_json(input_grug_text) -- luacheck: ignore
+function grug:grug_to_json(input_grug_text) -- luacheck: ignore
 	local tokens = tokenize(input_grug_text)
 	local ast = Parser.new(tokens):parse()
 	return ast_to_json_text(ast)
 end
 
-function grug:generate_file_from_json(input_json_text) -- luacheck: ignore
+function grug:json_to_grug(input_json_text) -- luacheck: ignore
 	local ast = json.decode(input_json_text)
 	return ast_to_grug(ast)
 end
@@ -260,6 +412,35 @@ local function default_runtime_error_handler(reason, grug_runtime_error_type, on
 	print("grug runtime error in " .. on_fn_name .. "(): " .. reason .. ", in " .. on_fn_path)
 end
 
+local bxor
+-- Try LuaJIT / Lua 5.1 BitOp module
+local has_bit, bit = pcall(require, "bit")
+if has_bit then
+	bxor = bit.bxor
+else
+	-- Try Lua 5.2 bit32 library (fallback for some distributions)
+	local has_bit32, bit32 = pcall(require, "bit32")
+	if has_bit32 then
+		bxor = bit32.bxor
+	else
+		-- Lua 5.3/5.5: Compile the native XOR opcode.
+		-- We use \126 to avoid putting the tilde character in the file.
+		local loader = loadstring or load
+		bxor = loader("return function(a, b) return a \126 b end")()
+	end
+end
+
+local function hash_fnv_1a(_absolute_path, str)
+	local hash = 2166136261
+
+	for i = 1, #str do
+		hash = bxor(hash, str:byte(i))
+		hash = (hash * 16777619) % 2 ^ 32
+	end
+
+	return hash
+end
+
 function grug.init(settings)
 	settings = settings or {}
 
@@ -269,7 +450,20 @@ function grug.init(settings)
 	local on_fn_time_limit_ms = settings.on_fn_time_limit_ms or 100
 	local packages = settings.packages or {}
 
-	local mod_api_text = read(mod_api_path)
+	local fs = {}
+	local sfs = settings.fs or {}
+
+	-- Lua can't tell the mtime, so we hash by default.
+	fs.get_file_version = sfs.get_file_version or hash_fnv_1a
+
+	-- We use io.open() by default.
+	fs.read = sfs.read or _read
+
+	-- These are only optionally used by state:update().
+	fs.list_dir = sfs.list_dir
+	fs.is_dir = sfs.is_dir
+
+	local mod_api_text = fs.read(mod_api_path)
 	local mod_api = json.decode(mod_api_text)
 
 	if type(mod_api) ~= "table" then
@@ -283,9 +477,12 @@ function grug.init(settings)
 		mods_dir_path = mods_dir_path,
 		on_fn_time_limit_ms = on_fn_time_limit_ms,
 		packages = packages,
+		fs = fs,
 		mod_api = mod_api,
 		game_fns = {},
 		next_id = 0,
 		fn_depth = 0,
+		_mods = nil,
+		grug_files = settings.grug_files,
 	}, grug)
 end

@@ -55,9 +55,6 @@ function Entity.new(file)
 		me_id = file.state.next_id,
 		file = file,
 		state = file.state,
-		game_fns = file.game_fns,
-		game_fn_return_types = file.game_fn_return_types,
-		on_fn_time_limit_sec = file.state.on_fn_time_limit_ms / 1000,
 		local_variables = {},
 		on_fn_depth = 0,
 		global_variables = {},
@@ -65,9 +62,17 @@ function Entity.new(file)
 		start_time = 0,
 	}, Entity)
 
+	file.entities[self] = true
+
 	file.state.next_id = file.state.next_id + 1
 	self:_init_globals(file.global_variables)
 	return self
+end
+
+function Entity:_init_globals_impl(global_variables)
+	for _, g in ipairs(global_variables) do
+		self.global_variables[g.name] = self:_run_expr(g.expr)
+	end
 end
 
 function Entity:_init_globals(global_variables)
@@ -78,13 +83,10 @@ function Entity:_init_globals(global_variables)
 	self.state.fn_depth = self.state.fn_depth + 1
 	self.start_time = os.clock()
 
-	local ok, err = pcall(function()
-		for _, g in ipairs(global_variables) do
-			self.global_variables[g.name] = self:_run_expr(g.expr)
-		end
-	end)
+	local ok, err = pcall(self._init_globals_impl, self, global_variables)
 
 	self.state.fn_depth = old_fn_depth
+
 	if not ok then
 		error(err)
 	end
@@ -304,29 +306,35 @@ function Entity:_run_return_statement(statement)
 	error(RETURN)
 end
 
-function Entity:_run_while_statement(statement)
-	local ok, err = pcall(function()
-		while self:_run_expr(statement.condition) do
-			local loop_ok, loop_err = pcall(self._run_statements, self, statement.body_statements)
-			if not loop_ok and loop_err.type ~= "CONTINUE" then
-				error(loop_err)
-			end
-			self:_check_time_limit_exceeded()
+function Entity:_run_while_statement_impl(statement)
+	while self:_run_expr(statement.condition) do
+		local loop_ok, loop_err = pcall(self._run_statements, self, statement.body_statements)
+
+		if not loop_ok and loop_err.type ~= "CONTINUE" then
+			error(loop_err)
 		end
-	end)
+
+		self:_check_time_limit_exceeded()
+	end
+end
+
+function Entity:_run_while_statement(statement)
+	local ok, err = pcall(self._run_while_statement_impl, self, statement)
 
 	if not ok then
 		if type(err) == "table" and err.type == "BREAK" then
 			return
 		end
+
 		error(err)
 	end
 end
 
 function Entity:_check_time_limit_exceeded()
-	if os.clock() - self.start_time > self.on_fn_time_limit_sec then
+	local limit_sec = self.file.state.on_fn_time_limit_ms / 1000
+	if os.clock() - self.start_time > limit_sec then
 		self.state.runtime_error_handler(
-			string.format("Took longer than %g milliseconds to run", self.on_fn_time_limit_sec * 1000),
+			string.format("Took longer than %g milliseconds to run", limit_sec * 1000),
 			"TIME_LIMIT_EXCEEDED",
 			self.fn_name,
 			self.file.relative_path
@@ -374,7 +382,7 @@ function Entity:_run_helper_fn(name, ...)
 end
 
 function Entity:_run_game_fn(name, ...)
-	local game_fn = self.game_fns[name]
+	local game_fn = self.file.game_fns[name]
 	assert(game_fn)
 
 	local parent_fn_name = self.fn_name
@@ -393,7 +401,7 @@ function Entity:_run_game_fn(name, ...)
 
 	self.fn_name = parent_fn_name
 
-	local t = self.game_fn_return_types[name]
+	local t = self.file.game_fn_return_types[name]
 	if t == nil then
 		return
 	end

@@ -25,7 +25,7 @@ state:register("print_number", print_number)
 -- utils.benchmark("lua reference", ref_on_inc)
 -- ref.on_print()
 
-local file = state:compile_grug_file("mymod/incrementer-Benchmark.grug")
+local file = state.mods["mymod"]["incrementer-Benchmark.grug"]
 local e = file:create_entity()
 
 -- This makes its specialization run WAY faster:
@@ -47,7 +47,7 @@ end
 --[[ TODO: Make this work:
 state.set_backend(transpiler_backend)
 
-local file2 = state:compile_grug_file("mymod/incrementer-Benchmark.grug")
+local file2 = state.mods["mymod"]["incrementer-Benchmark.grug"]
 local e2 = file:create_entity()
 
 local on_inc2 = e2.on_increment
@@ -55,7 +55,8 @@ local on_inc2 = e2.on_increment
 --
 
 -- TODO: Replace with real transpilation
-local chunk = assert(loadstring([[
+local loader = load or loadstring -- Lua 5.1 uses loadstring; 5.2+ uses load
+local chunk = assert(loader([[
 	-- These aren't necessary for LuaJIT,
 	-- but it speeds up Lua 5.5 by ~11%.
 	local get_1
