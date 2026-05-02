@@ -27,6 +27,8 @@ local ref_on_inc = ref.on_increment
 utils.benchmark("lua reference", ref_on_inc)
 ref.on_print()
 
+print("Compiling grug code...")
+io.flush()
 local file = state.mods["mymod"]["incrementer-Benchmark.grug"]
 local e = file:create_entity()
 
