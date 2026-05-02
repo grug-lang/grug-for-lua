@@ -23,7 +23,7 @@ def change_dir(path: Path):
 def run(cmd: List[str], json_filename: str):
     result = subprocess.run(cmd + ["benchmark.lua", json_filename])
     if result.returncode != 0:
-        print(f"Command failed with exit code {result.returncode}")
+        print(f"Command failed with exit code {result.returncode}", file=sys.stderr)
         sys.exit(result.returncode)
 
 
@@ -51,13 +51,7 @@ def main():
     dirs = sorted(d for d in benchmarks_root.iterdir() if d.is_dir())
 
     for d in dirs:
-        benchmark_file = d / "benchmark.lua"
-
-        if not benchmark_file.is_file():
-            print(f"Skipping {d.name}: no benchmark.lua found")
-            continue
-
-        print(f"=== Running benchmark {d.name}/ ===")
+        print(f"=== Running benchmark {d.name}/ ===", file=sys.stderr)
 
         with change_dir(d):
             for executable, json_file in configs.items():
