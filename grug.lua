@@ -2756,7 +2756,7 @@ function Entity:_run_call_expr(call_expr)
 	end
 
 	if string.sub(call_expr.fn_name, 1, 7) == "helper_" then
-		return self:_run_helper_fn(call_expr.fn_name, unpack(args))
+		return self:_run_helper_fn(call_expr.fn_name, args)
 	else
 		return self:_run_game_fn(call_expr.fn_name, unpack(args))
 	end
@@ -2823,9 +2823,8 @@ function Entity:_check_time_limit_exceeded()
 	end
 end
 
-function Entity:_run_helper_fn(name, ...)
+function Entity:_run_helper_fn(name, args)
 	local helper_fn = self.file.helper_fns[name]
-	local args = { ... }
 	local parent_local_variables = self.local_variables
 	self.local_variables = {}
 
