@@ -74,13 +74,15 @@ function Entity:_init_globals_impl(global_variables)
 	end
 end
 
+local clock = os.clock
+
 function Entity:_init_globals(global_variables)
 	self.fn_name = "init_globals"
 	self.global_variables["me"] = { __grug_type = "id", value = self.me_id }
 
 	local old_fn_depth = self.state.fn_depth
 	self.state.fn_depth = self.state.fn_depth + 1
-	self.start_time = os.clock()
+	self.start_time = clock()
 
 	local ok, err = pcall(self._init_globals_impl, self, global_variables)
 
@@ -168,7 +170,7 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	local old_on_fn_depth = self.on_fn_depth
 	self.on_fn_depth = self.on_fn_depth + 1
 	if self.on_fn_depth == 1 then
-		self.start_time = os.clock()
+		self.start_time = clock()
 	end
 
 	self:_run_statements(on_fn.body_statements)
@@ -404,7 +406,7 @@ end
 
 function Entity:_check_time_limit_exceeded()
 	local limit_sec = self.file.state.on_fn_time_limit_ms / 1000
-	if os.clock() - self.start_time > limit_sec then
+	if clock() - self.start_time > limit_sec then
 		self.state.runtime_error_handler(
 			string.format("Took longer than %g milliseconds to run", limit_sec * 1000),
 			"TIME_LIMIT_EXCEEDED",
