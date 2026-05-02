@@ -93,10 +93,9 @@ jobs:
         if: matrix.lua == 'luajit'
         run: $LUA_CMD tests.lua "" ./grug-tests
 
-      - name: Run Lua example (minimal)
+      - name: Run all Lua examples
         run: |
-          cd examples/minimal
-          timeout 1 $LUA_CMD example.lua
+          python3 run_examples.py
 
   lint:
     runs-on: ubuntu-latest
