@@ -6,8 +6,6 @@ local BREAK = { type = "BREAK" }
 local CONTINUE = { type = "CONTINUE" }
 local RETURN = { type = "RETURN" }
 
-local unpack = unpack or table.unpack
-
 local BINARY_OPS = {
 	PLUS_TOKEN = function(l, r)
 		return l + r
@@ -352,7 +350,7 @@ function Entity:_run_call_expr(call_expr)
 	if string.sub(call_expr.fn_name, 1, 7) == "helper_" then
 		return self:_run_helper_fn(call_expr.fn_name, args)
 	else
-		return self:_run_game_fn(call_expr.fn_name, unpack(args))
+		return self:_run_game_fn(call_expr.fn_name, args)
 	end
 end
 
@@ -465,12 +463,44 @@ function Entity:_run_helper_fn(name, args)
 	end
 end
 
-function Entity:_run_game_fn(name, ...)
+-- Cache for generated wrapper functions.
+local _wrapper_cache = {}
+local loader = loadstring or load
+
+-- Every wrapper performs fixed-index access,
+-- because LuaJIT 2.1 unfortunately stitches unpack():
+-- https://github.com/tarantool/tarantool/wiki/LuaJIT-Not-Yet-Implemented
+local function _get_wrapper(arg_count)
+	if _wrapper_cache[arg_count] then
+		return _wrapper_cache[arg_count]
+	end
+
+	local arg_list = {}
+	for i = 1, arg_count do
+		arg_list[i] = "args[" .. i .. "]"
+	end
+
+	-- If there are args, prefix the concatenated string with a comma.
+	local args_str = #arg_list > 0 and (", " .. table.concat(arg_list, ", ")) or ""
+
+	-- Generate a string like: "return function(fn, state, args) return fn(state, args[1], args[2]) end"
+	local code = string.format("return function(fn, state, args) return fn(state%s) end", args_str)
+
+	local wrapper = loader(code)()
+	_wrapper_cache[arg_count] = wrapper
+	return wrapper
+end
+
+function Entity:_run_game_fn(name, args)
 	local game_fn = self.file.game_fns[name]
 	assert(game_fn)
 
 	local parent_fn_name = self.fn_name
-	local ok, result = pcall(game_fn, self.state, ...)
+
+	-- Get or create a wrapper specific to this argument count.
+	local wrapper = _get_wrapper(#args)
+
+	local ok, result = pcall(wrapper, game_fn, self.state, args)
 
 	if not ok then
 		if result.type == "GAME_FN_ERROR" then

@@ -425,7 +425,6 @@ else
 	else
 		-- Lua 5.3/5.5: Compile the native XOR opcode.
 		-- We use \126 to avoid putting the tilde character in the file.
-		local loader = loadstring or load
 		bxor = loader("return function(a, b) return a \126 b end")()
 	end
 end
