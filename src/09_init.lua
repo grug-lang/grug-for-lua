@@ -342,7 +342,10 @@ local function assert_on_functions_sorted(entity_name, on_functions)
 		table.insert(keys, fn.name)
 	end
 
-	local sorted_keys = { unpack(keys) }
+	local sorted_keys = {}
+	for i = 1, #keys do
+		sorted_keys[i] = keys[i]
+	end
 	table.sort(sorted_keys)
 
 	for i, actual in ipairs(keys) do
