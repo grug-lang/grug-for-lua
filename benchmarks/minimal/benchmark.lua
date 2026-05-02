@@ -4,7 +4,9 @@ local utils = require("utils")
 local grug = require("grug")
 local ref = require("reference")
 
-local state = grug.init()
+local state = grug.init({
+	grug_files = { "mymod/incrementer-Benchmark.grug" },
+})
 
 local function get_1(_state)
 	return 1

@@ -4,7 +4,9 @@ local utils = require("utils")
 local grug = require("grug")
 local ref = require("reference")
 
-local state = grug.init()
+local state = grug.init({
+	grug_files = { "mymod/fib-Benchmark.grug" },
+})
 
 local function List(_state)
 	return {}
