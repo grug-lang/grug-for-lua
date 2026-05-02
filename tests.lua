@@ -9,30 +9,40 @@ end
 
 local grug_tests_path = arg[2] or "../grug-tests"
 
-local function print_traceback(err)
-	io.stderr:write(debug.traceback(tostring(err)) .. "\n")
-end
-
--- Use to print tables when debugging
-local function dump(tbl, indent) -- luacheck: ignore
+local function dump_to_str(tbl, indent, seen)
 	indent = indent or 0
+	seen = seen or {}
 	local prefix = string.rep("  ", indent)
 
 	if type(tbl) ~= "table" then
-		print(prefix .. tostring(tbl))
-		return
+		return prefix .. tostring(tbl)
 	end
 
-	print(prefix .. "{")
+	-- Prevents infinite recursion on cyclic tables
+	if seen[tbl] then
+		return prefix .. "<cycle>"
+	end
+	seen[tbl] = true
+
+	local out = { prefix .. "{" }
+
 	for k, v in pairs(tbl) do
-		io.write(prefix .. "  [" .. tostring(k) .. "] = ")
+		local line = prefix .. "  [" .. tostring(k) .. "] = "
+
 		if type(v) == "table" then
-			dump(v, indent + 1)
+			table.insert(out, line)
+			table.insert(out, dump_to_str(v, indent + 1, seen))
 		else
-			print(tostring(v))
+			table.insert(out, line .. tostring(v))
 		end
 	end
-	print(prefix .. "}")
+
+	table.insert(out, prefix .. "}")
+	return table.concat(out, "\n")
+end
+
+local function print_traceback(err)
+	io.stderr:write(debug.traceback(dump_to_str(err)) .. "\n")
 end
 
 -- luacheck: push ignore
@@ -409,7 +419,8 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 	end
 
 	local ok, err = pcall(function()
-		entity:_run_on_fn(fn_name, unpack(lua_args))
+		local on_fn = entity[fn_name]
+		on_fn(entity, unpack(lua_args))
 	end)
 
 	if not ok then
@@ -422,7 +433,7 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 			-- Necessary, as C doesn't propagate exceptions.
 			grug_runtime_err = err
 		else
-			print_traceback(err)
+			error(dump_to_str(err))
 		end
 	end
 end

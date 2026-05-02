@@ -2,7 +2,6 @@ local Entity = {}
 
 local MAX_DEPTH = 100
 
--- Control flow exception tokens used to mimic Python's exception-based control flow
 local BREAK = { type = "BREAK" }
 local CONTINUE = { type = "CONTINUE" }
 local RETURN = { type = "RETURN" }
@@ -96,7 +95,12 @@ end
 -- Stores the method key as a table field; __call dispatches to _run_on_fn.
 local _on_fn_proxy_mt = {
 	__call = function(t, self2, ...)
-		return self2:_run_on_fn(t._key, ...)
+		self2:_run_on_fn(t._key, ...)
+		local flow = self2._flow
+		if flow then
+			self2._flow = nil
+			error(flow.err or flow)
+		end
 	end,
 }
 local _on_fn_proxy_cache = {}
@@ -108,12 +112,14 @@ function Entity:__index(key) -- luacheck: ignore
 		return val
 	end
 
-	local proxy = _on_fn_proxy_cache[key]
-	if proxy == nil then
-		proxy = setmetatable({ _key = key }, _on_fn_proxy_mt)
-		_on_fn_proxy_cache[key] = proxy
+	if type(key) == "string" and string.sub(key, 1, 3) == "on_" then
+		local proxy = _on_fn_proxy_cache[key]
+		if proxy == nil then
+			proxy = setmetatable({ _key = key }, _on_fn_proxy_mt)
+			_on_fn_proxy_cache[key] = proxy
+		end
+		return proxy
 	end
-	return proxy
 end
 
 local function _get_expected_type(type_name)
@@ -123,7 +129,11 @@ end
 function Entity:_run_on_fn(on_fn_name, ...)
 	local on_fn = self.file.on_fns[on_fn_name]
 	if not on_fn then
-		error("The function '" .. on_fn_name .. "' is not defined by the file " .. self.file.relative_path)
+		self._flow = {
+			type = "ERROR",
+			err = "The function '" .. on_fn_name .. "' is not defined by the file " .. self.file.relative_path,
+		}
+		return
 	end
 
 	local args = { ... }
@@ -136,15 +146,18 @@ function Entity:_run_on_fn(on_fn_name, ...)
 		local arg = args[i]
 		local expected = _get_expected_type(argument.type_name)
 		if type(arg) ~= expected then
-			error(
-				string.format(
+			self.local_variables = parent_local_variables
+			self._flow = {
+				type = "ERROR",
+				err = string.format(
 					"Argument '%s' of %s() must be %s, got %s",
 					argument.name,
 					on_fn_name,
 					argument.type_name,
 					type(arg)
-				)
-			)
+				),
+			}
+			return
 		end
 		self.local_variables[argument.name] = arg
 	end
@@ -158,36 +171,41 @@ function Entity:_run_on_fn(on_fn_name, ...)
 		self.start_time = os.clock()
 	end
 
-	local ok, err = pcall(self._run_statements, self, on_fn.body_statements)
+	self:_run_statements(on_fn.body_statements)
 
-	-- Determine whether to re-raise *before* restoring state, since the check
-	-- depends on the current (pre-restore) fn_depth.
-	local should_reraise = false
-	if not ok then
-		local err_type = type(err) == "table" and err.type
+	-- Determine whether to propagate *before* restoring state
+	local flow = self._flow
+	local should_propagate = false
+	if flow then
+		local flow_type = type(flow) == "table" and flow.type
 		if
-			err_type == "STACK_OVERFLOW"
-			or err_type == "TIME_LIMIT_EXCEEDED"
-			or err_type == "RERAISED_GAME_FN_ERROR"
+			flow_type == "STACK_OVERFLOW"
+			or flow_type == "TIME_LIMIT_EXCEEDED"
+			or flow_type == "RERAISED_GAME_FN_ERROR"
 		then
-			should_reraise = self.state.fn_depth > 1
-		else
-			should_reraise = true
+			should_propagate = self.state.fn_depth > 1
+		elseif flow_type == "ERROR" then
+			should_propagate = true
 		end
+		-- RETURN / BREAK / CONTINUE at on_fn level: consumed (not propagated)
 	end
 
 	self.state.fn_depth = old_fn_depth
 	self.on_fn_depth = old_on_fn_depth
 	self.local_variables = parent_local_variables
 
-	if should_reraise then
-		error(err)
+	if not should_propagate then
+		self._flow = nil
 	end
+	-- If should_propagate, self._flow stays set for the proxy to handle
 end
 
 function Entity:_run_statements(statements)
 	for _, statement in ipairs(statements) do
 		self:_run_statement(statement)
+		if self._flow then
+			return
+		end
 	end
 end
 
@@ -204,9 +222,9 @@ function Entity:_run_statement(statement)
 	elseif t == "WhileStatement" then
 		self:_run_while_statement(statement)
 	elseif t == "BreakStatement" then
-		error(BREAK)
+		self._flow = BREAK
 	elseif t == "ContinueStatement" then
-		error(CONTINUE)
+		self._flow = CONTINUE
 	end
 end
 
@@ -220,78 +238,113 @@ function Entity:_run_variable_statement(statement)
 end
 
 function Entity:_run_expr(expr)
+	local result
 	if expr.bool_val ~= nil then
-		return expr.bool_val
+		result = expr.bool_val
 	elseif expr.value ~= nil then
-		return expr.value
+		result = expr.value
 	elseif expr.string ~= nil then
 		assert(type(expr.result) == "table")
 		local typ = expr.result.type
 		if typ == "STRING" then
-			return expr.string
+			result = expr.string
 		elseif typ == "RESOURCE" then
-			return self.file.mod .. "/" .. expr.string
+			result = self.file.mod .. "/" .. expr.string
 		elseif typ == "ENTITY" then
 			if string.find(expr.string, ":") then
-				return expr.string
+				result = expr.string
 			else
-				return self.file.mod .. ":" .. expr.string
+				result = self.file.mod .. ":" .. expr.string
 			end
 		end
 	elseif expr.name ~= nil then
 		if self.global_variables[expr.name] ~= nil then
-			return self.global_variables[expr.name]
+			result = self.global_variables[expr.name]
+		else
+			result = self.local_variables[expr.name]
 		end
-		return self.local_variables[expr.name]
 	elseif expr.operator ~= nil then
 		if expr.left_expr ~= nil then
 			if expr.operator == "AND_TOKEN" or expr.operator == "OR_TOKEN" then
-				return self:_run_logical_expr(expr)
+				result = self:_run_logical_expr(expr)
 			else
-				return self:_run_binary_expr(expr)
+				result = self:_run_binary_expr(expr)
 			end
 		else
-			return self:_run_unary_expr(expr)
+			result = self:_run_unary_expr(expr)
 		end
 	elseif expr.fn_name ~= nil then
-		local val = self:_run_call_expr(expr)
-		assert(val ~= nil)
-		return val
+		result = self:_run_call_expr(expr)
 	elseif expr.expr ~= nil then
-		return self:_run_expr(expr.expr)
+		result = self:_run_expr(expr.expr)
 	end
+
+	if self._flow then
+		return
+	end
+	return result
 end
 
 function Entity:_run_unary_expr(unary_expr)
-	local op = unary_expr.operator
 	local val = self:_run_expr(unary_expr.expr)
-	if op == "MINUS_TOKEN" then
+	if self._flow then
+		return
+	end
+
+	if unary_expr.operator == "MINUS_TOKEN" then
 		return -val
 	else
-		assert(op == "NOT_TOKEN")
+		assert(unary_expr.operator == "NOT_TOKEN")
 		return not val
 	end
 end
 
 function Entity:_run_binary_expr(binary_expr)
 	local left = self:_run_expr(binary_expr.left_expr)
+	if self._flow then
+		return
+	end
+
 	local right = self:_run_expr(binary_expr.right_expr)
+	if self._flow then
+		return
+	end
+
 	return BINARY_OPS[binary_expr.operator](left, right)
 end
 
 function Entity:_run_logical_expr(logical_expr)
 	local left = self:_run_expr(logical_expr.left_expr)
-	if logical_expr.operator == "AND_TOKEN" then
-		return left and self:_run_expr(logical_expr.right_expr)
-	else
-		return left or self:_run_expr(logical_expr.right_expr)
+	if self._flow then
+		return
 	end
+
+	if logical_expr.operator == "AND_TOKEN" then
+		if not left then
+			return false
+		end
+	else
+		assert(logical_expr.operator == "OR_TOKEN")
+		if left then
+			return true
+		end
+	end
+
+	local right = self:_run_expr(logical_expr.right_expr)
+	if self._flow then
+		return
+	end
+	return right
 end
 
 function Entity:_run_call_expr(call_expr)
 	local args = {}
 	for _, arg in ipairs(call_expr.arguments) do
-		table.insert(args, self:_run_expr(arg))
+		local val = self:_run_expr(arg)
+		if self._flow then
+			return
+		end
+		table.insert(args, val)
 	end
 
 	if string.sub(call_expr.fn_name, 1, 7) == "helper_" then
@@ -311,33 +364,42 @@ end
 
 function Entity:_run_return_statement(statement)
 	if statement.value then
-		error({ type = "RETURN", value = self:_run_expr(statement.value) })
+		local val = self:_run_expr(statement.value)
+		if self._flow then
+			return
+		end
+		self._flow = { type = "RETURN", value = val }
+	else
+		self._flow = RETURN
 	end
-	error(RETURN)
 end
 
 function Entity:_run_while_statement_impl(statement)
 	while self:_run_expr(statement.condition) do
-		local loop_ok, loop_err = pcall(self._run_statements, self, statement.body_statements)
+		self:_run_statements(statement.body_statements)
 
-		if not loop_ok and loop_err.type ~= "CONTINUE" then
-			error(loop_err)
+		if self._flow then
+			if self._flow == CONTINUE then
+				self._flow = nil -- Consume CONTINUE, keep looping
+			else
+				return -- BREAK / RETURN / error: propagate up
+			end
 		end
 
 		self:_check_time_limit_exceeded()
+		if self._flow then
+			return
+		end
 	end
 end
 
 function Entity:_run_while_statement(statement)
-	local ok, err = pcall(self._run_while_statement_impl, self, statement)
+	self:_run_while_statement_impl(statement)
 
-	if not ok then
-		if type(err) == "table" and err.type == "BREAK" then
-			return
-		end
-
-		error(err)
+	if self._flow == BREAK then
+		self._flow = nil -- Consume BREAK
 	end
+	-- RETURN / errors propagate further
 end
 
 function Entity:_check_time_limit_exceeded()
@@ -349,7 +411,7 @@ function Entity:_check_time_limit_exceeded()
 			self.fn_name,
 			self.file.relative_path
 		)
-		error({ type = "TIME_LIMIT_EXCEEDED" })
+		self._flow = { type = "TIME_LIMIT_EXCEEDED" }
 	end
 end
 
@@ -373,21 +435,32 @@ function Entity:_run_helper_fn(name, ...)
 			self.fn_name,
 			self.file.relative_path
 		)
-		error({ type = "STACK_OVERFLOW" })
+		self.state.fn_depth = old_fn_depth
+		self.local_variables = parent_local_variables
+		self._flow = { type = "STACK_OVERFLOW" }
+		return
 	end
 
 	self:_check_time_limit_exceeded()
+	if self._flow then
+		self.state.fn_depth = old_fn_depth
+		self.local_variables = parent_local_variables
+		return
+	end
 
-	local ok, err = pcall(self._run_statements, self, helper_fn.body_statements)
+	self:_run_statements(helper_fn.body_statements)
 
 	self.state.fn_depth = old_fn_depth
 	self.local_variables = parent_local_variables
 
-	if not ok then
-		if type(err) == "table" and err.type == "RETURN" then
-			return err.value
+	local flow = self._flow
+	if flow then
+		local flow_type = type(flow) == "table" and flow.type
+		if flow_type == "RETURN" then
+			self._flow = nil
+			return flow.value -- Normal helper return.
 		end
-		error(err)
+		-- Anything else (STACK_OVERFLOW, TIME_LIMIT, etc.): leave self._flow set.
 	end
 end
 
@@ -401,12 +474,13 @@ function Entity:_run_game_fn(name, ...)
 	if not ok then
 		if result.type == "GAME_FN_ERROR" then
 			self.state.runtime_error_handler(result.reason, "GAME_FN_ERROR", parent_fn_name, self.file.relative_path)
-			error({ type = "RERAISED_GAME_FN_ERROR" })
+			self._flow = { type = "RERAISED_GAME_FN_ERROR" }
 		else
-			-- We don't want to call runtime_error_handler() a second time
-			-- on game function errors.
-			error(result)
+			-- We don't want to call runtime_error_handler()
+			-- a second time on game function errors.
+			self._flow = { type = "ERROR", err = result }
 		end
+		return
 	end
 
 	self.fn_name = parent_fn_name
@@ -418,7 +492,11 @@ function Entity:_run_game_fn(name, ...)
 
 	local expected = _get_expected_type(t)
 	if type(result) ~= expected then
-		error(string.format("Return value of game function %s() must be %s, got %s", name, expected, type(result)))
+		self._flow = {
+			type = "ERROR",
+			err = string.format("Return value of game function %s() must be %s, got %s", name, expected, type(result)),
+		}
+		return
 	end
 
 	return result
