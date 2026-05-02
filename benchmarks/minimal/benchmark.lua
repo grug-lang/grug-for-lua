@@ -18,14 +18,14 @@ local function print_number(_state, nbr)
 end
 state:register("print_number", print_number)
 
--- ref.init({
--- 	get_1 = get_1,
--- 	print_number = print_number,
--- })
+ref.init({
+	get_1 = get_1,
+	print_number = print_number,
+})
 
--- local ref_on_inc = ref.on_increment
--- utils.benchmark("lua reference", ref_on_inc)
--- ref.on_print()
+local ref_on_inc = ref.on_increment
+utils.benchmark("lua reference", ref_on_inc)
+ref.on_print()
 
 local file = state.mods["mymod"]["incrementer-Benchmark.grug"]
 local e = file:create_entity()
@@ -35,16 +35,11 @@ local e = file:create_entity()
 -- Lua 5.5: 3738735 -> 4166545 iterations
 local on_inc = e.on_increment
 
--- TODO: REMOVE!
-for i = 1, 83500 do -- TODO: Why does roughly this number of iterations have a 50% chance of slowing down the upcoming compiled chunk by 18 times?
+utils.benchmark("grug interpreter backend", function()
 	on_inc(e)
-end
+end)
 
--- utils.benchmark("grug interpreter backend", function()
--- 	on_inc(e)
--- end)
-
--- e:on_print()
+e:on_print()
 
 --[[ TODO: Make this work:
 state.set_backend(transpiler_backend)
