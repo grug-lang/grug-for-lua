@@ -96,7 +96,7 @@ jobs:
       - name: Run Lua example (minimal)
         run: |
           cd examples/minimal
-          $LUA_CMD example.lua
+          timeout 1 $LUA_CMD example.lua
 
   lint:
     runs-on: ubuntu-latest
