@@ -92,18 +92,28 @@ function Entity:_init_globals(global_variables)
 	end
 end
 
--- Python's __getattr__ dynamic method logic translated to Lua's __index.
--- This allows calling on_ functions defined in the grug file (e.g., dog:spawn()).
+-- Callable proxy used by Entity:__index to avoid closures (LuaJIT NYI: UCLO).
+-- Stores the method key as a table field; __call dispatches to _run_on_fn.
+local _on_fn_proxy_mt = {
+	__call = function(t, self2, ...)
+		return self2:_run_on_fn(t._key, ...)
+	end,
+}
+local _on_fn_proxy_cache = {}
+
+-- This allows calling on_ functions defined in the grug file (e.g., dog:on_spawn()).
 function Entity:__index(key) -- luacheck: ignore
 	local val = rawget(Entity, key)
 	if val ~= nil then
 		return val
 	end
 
-	local fn_name = key
-	return function(self2, ...)
-		return self2:_run_on_fn(fn_name, ...)
+	local proxy = _on_fn_proxy_cache[key]
+	if proxy == nil then
+		proxy = setmetatable({ _key = key }, _on_fn_proxy_mt)
+		_on_fn_proxy_cache[key] = proxy
 	end
+	return proxy
 end
 
 local function _get_expected_type(type_name)
