@@ -95,7 +95,25 @@ end
 -- Stores the method key as a table field; __call dispatches to _run_on_fn.
 local _on_fn_proxy_mt = {
 	__call = function(t, self2, ...)
-		self2:_run_on_fn(t._key, ...)
+		-- Wrap _run_on_fn in a pcall so that errors thrown by game functions
+		-- (registered Lua callbacks) are caught here rather than inside
+		-- _run_game_fn.  Keeping the pcall at this outer level means the hot
+		-- inner loop (_run_game_fn -> wrapper -> game fn) is pcall-free, which
+		-- lets LuaJIT trace through game function returns without hitting
+		-- "NYI: return to lower frame".
+		local ok, err = pcall(self2._run_on_fn, self2, t._key, ...)
+		if not ok then
+			self2._flow = nil
+			-- Game functions may signal errors by throwing a table with
+			-- type = "GAME_FN_ERROR".  Handle those exactly as _run_game_fn
+			-- used to, then return without re-throwing.
+			if type(err) == "table" and err.type == "GAME_FN_ERROR" then
+				self2.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", self2.fn_name, self2.file.relative_path)
+				return
+			end
+			-- Any other Lua error: re-throw to the caller.
+			error(err, 0)
+		end
 		local flow = self2._flow
 		if flow then
 			self2._flow = nil
@@ -500,19 +518,11 @@ function Entity:_run_game_fn(name, args)
 	-- Get or create a wrapper specific to this argument count.
 	local wrapper = _get_wrapper(#args)
 
-	local ok, result = pcall(wrapper, game_fn, self.state, args)
-
-	if not ok then
-		if result.type == "GAME_FN_ERROR" then
-			self.state.runtime_error_handler(result.reason, "GAME_FN_ERROR", parent_fn_name, self.file.relative_path)
-			self._flow = { type = "RERAISED_GAME_FN_ERROR" }
-		else
-			-- We don't want to call runtime_error_handler()
-			-- a second time on game function errors.
-			self._flow = { type = "ERROR", err = result }
-		end
-		return
-	end
+	-- Call directly (no pcall) so that LuaJIT can trace through game function
+	-- calls without hitting "NYI: return to lower frame" at a C pcall boundary.
+	-- Errors from game functions propagate up to _on_fn_proxy_mt.__call, which
+	-- wraps the entire _run_on_fn in a pcall and handles GAME_FN_ERROR there.
+	local result = wrapper(game_fn, self.state, args)
 
 	self.fn_name = parent_fn_name
 
