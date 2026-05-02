@@ -3447,19 +3447,34 @@ local function default_runtime_error_handler(reason, grug_runtime_error_type, on
 end
 
 local bxor
--- Try LuaJIT / Lua 5.1 BitOp module
+-- Try LuaJIT
 local has_bit, bit = pcall(require, "bit")
 if has_bit then
 	bxor = bit.bxor
 else
-	-- Try Lua 5.2 bit32 library (fallback for some distributions)
+	-- Try Lua 5.2
 	local has_bit32, bit32 = pcall(require, "bit32")
 	if has_bit32 then
 		bxor = bit32.bxor
 	else
-		-- Lua 5.3/5.5: Compile the native XOR opcode.
-		-- We use \126 to avoid putting the tilde character in the file.
-		bxor = loader("return function(a, b) return a \126 b end")()
+		-- Try to compile Lua 5.3+ its bitwise XOR tilde operator
+		local success, fn = pcall(loader, "return function(a,b) return a \126 b end")
+		if success and fn then
+			bxor = fn()
+		else
+			-- Last resort: Pure Lua XOR for Lua 5.1
+			bxor = function(a, b)
+				local res, c = 0, 1
+				while a > 0 or b > 0 do
+					local ra, rb = a % 2, b % 2
+					if ra ~= rb then
+						res = res + c
+					end
+					a, b, c = math.floor(a / 2), math.floor(b / 2), c * 2
+				end
+				return res
+			end
+		end
 	end
 end
 
