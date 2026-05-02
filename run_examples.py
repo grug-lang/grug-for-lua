@@ -9,7 +9,7 @@ def run_examples():
 
         try:
             subprocess.run(
-                ["luajit", "example.lua"],
+                ["lua", "example.lua"],
                 cwd=entry.path,  # Run from within the example directory
                 timeout=1,  # 1 second limit
                 check=False,  # Don't raise exception on non-zero exit
