@@ -14,7 +14,7 @@ end
 state:register("get_1", get_1)
 
 local function print_number(_state, nbr)
-	print("  Iterations: " .. nbr)
+	utils.log("  Iterations: " .. nbr)
 end
 state:register("print_number", print_number)
 
@@ -27,8 +27,7 @@ local ref_on_inc = ref.on_increment
 utils.benchmark("lua reference", ref_on_inc)
 ref.on_print()
 
-print("Compiling grug code...")
-io.flush()
+utils.log("Compiling grug code...")
 local file = state.mods["mymod"]["incrementer-Benchmark.grug"]
 local e = file:create_entity()
 

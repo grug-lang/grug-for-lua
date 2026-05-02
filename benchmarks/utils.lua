@@ -9,13 +9,16 @@ local utils = {}
 
 local specializations = {}
 
+function utils.log(...)
+	print(...)
+	io.flush()
+end
+
 -- Measures execution time of a function
 function utils.benchmark(name, fn)
-	print("Benchmarking " .. name .. "...")
-	io.flush()
+	utils.log("Benchmarking " .. name .. "...")
 
-	print("Warming up...")
-	io.flush()
+	utils.log("Warming up...")
 
 	-- 1. Warmup phase: Run for exactly 1.0 second
 	-- We use batch_size to avoid calling os.clock() too frequently
@@ -33,8 +36,7 @@ function utils.benchmark(name, fn)
 	-- iterations = (iters / 1s) * measured_seconds
 	local total_measured_iterations = math.floor((warmup_iterations / actual_warmup_time) * measured_seconds)
 
-	print("Measuring...")
-	io.flush()
+	utils.log("Measuring...")
 
 	-- 3. Actual measurement
 	local start = os.clock()
@@ -69,8 +71,7 @@ function utils.save_results()
 	f:write(json.encode(data))
 	f:close()
 
-	print("Results saved to " .. path .. "\n")
-	io.flush()
+	utils.log("Results saved to " .. path .. "\n")
 end
 
 return utils

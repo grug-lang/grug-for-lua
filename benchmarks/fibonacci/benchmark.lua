@@ -71,8 +71,7 @@ ref.init({
 local ref_on_run = ref.on_run
 utils.benchmark("lua reference", ref_on_run)
 
-print("Compiling grug code...")
-io.flush()
+utils.log("Compiling grug code...")
 local file = state.mods["mymod"]["fib-Benchmark.grug"]
 local e = file:create_entity()
 local on_run = e.on_run
