@@ -111,7 +111,7 @@ python run_benchmarks.py \
 
 ### Investigating slow benchmarks
 
-The CI throws an error if it finds any [LuaJIT NYI](https://github.com/tarantool/tarantool/wiki/LuaJIT-Not-Yet-Implemented) in the trace, as NYIs cause slowdown:
+The CI throws an error if it finds any [LuaJIT NYI](https://github.com/tarantool/tarantool/wiki/LuaJIT-Not-Yet-Implemented) in the trace, as NYIs aren't compiled:
 ```
 [TRACE --- grug.lua:2715 -- NYI: bytecode FNEW   at grug.lua:2724]
 ```
