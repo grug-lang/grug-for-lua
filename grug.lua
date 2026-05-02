@@ -2505,7 +2505,7 @@ local _on_fn_proxy_mt = {
 	__call = function(t, self2, ...)
 		-- Wrap _run_on_fn in a pcall so that errors thrown by game functions
 		-- (registered Lua callbacks) are caught here rather than inside
-		-- _run_game_fn.  Keeping the pcall at this outer level means the hot
+		-- _run_game_fn. Keeping the pcall at this outer level means the hot
 		-- inner loop (_run_game_fn -> wrapper -> game fn) is pcall-free, which
 		-- lets LuaJIT trace through game function returns without hitting
 		-- "NYI: return to lower frame".
@@ -2513,7 +2513,7 @@ local _on_fn_proxy_mt = {
 		if not ok then
 			self2._flow = nil
 			-- Game functions may signal errors by throwing a table with
-			-- type = "GAME_FN_ERROR".  Handle those exactly as _run_game_fn
+			-- type = "GAME_FN_ERROR". Handle those exactly as _run_game_fn
 			-- used to, then return without re-throwing.
 			if type(err) == "table" and err.type == "GAME_FN_ERROR" then
 				self2.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", self2.fn_name, self2.file.relative_path)
