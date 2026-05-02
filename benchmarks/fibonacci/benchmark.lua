@@ -80,3 +80,5 @@ utils.benchmark("grug interpreter backend", function()
 end)
 
 utils.save_results()
+
+-- TODO: Benchmark grug transpiler backend
