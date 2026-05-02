@@ -2,6 +2,13 @@
 
 A Lua implementation of [grug](https://github.com/grug-lang/grug).
 
+## Why grug?
+
+* **Safer, simpler language design:** Static typing and a restricted feature set reduce runtime errors and eliminate common engine pitfalls.
+* **Hot reloading:** Update mod code and resource files at runtime without restarting the host.
+* **Stable, predictable performance:** Avoids JIT edge cases (e.g. LuaJIT [NYI](https://github.com/tarantool/tarantool/wiki/LuaJIT-Not-Yet-Implemented) issues), and CI ensures all benchmarks run as fast in LuaJIT as their equivalent `reference.lua` implementations.
+* **Portable and future-proof:** Lossless AST enables cross-language transpilation, tooling, and long-term compatibility ("immortal mods"), with all execution behavior defined by host-provided APIs.
+
 ## Example
 
 Run the minimal example:
