@@ -1,4 +1,11 @@
-local Entity = {}
+--
+-- _InterpreterEntity: the interpreter's per-entity execution state.
+-- This is the interpreter backend's internal representation of an entity.
+-- It holds global/local variables and all the AST-walking logic.
+-- An alternative backend stores its own data in GrugEntity.data instead.
+--
+local _InterpreterEntity = {}
+_InterpreterEntity.__index = _InterpreterEntity
 
 local MAX_DEPTH = 100
 
@@ -47,26 +54,30 @@ local EXPECTED_TYPES = {
 	entity = "string",
 }
 
-function Entity.new(file)
+local function _get_expected_type(type_name)
+	return EXPECTED_TYPES[type_name] or "table"
+end
+
+-- Create a new interpreter-entity for `grug_entity`.
+-- May raise a Lua error if a runtime error occurs during global-variable
+-- initialisation (e.g. STACK_OVERFLOW / TIME_LIMIT_EXCEEDED).
+function _InterpreterEntity.new(grug_entity)
 	local self = setmetatable({
-		me_id = file.state.next_id,
-		file = file,
-		state = file.state,
+		me_id = grug_entity.me_id,
+		file = grug_entity.file,
+		state = grug_entity.state,
 		local_variables = {},
 		on_fn_depth = 0,
 		global_variables = {},
 		fn_name = "",
 		start_time = 0,
-	}, Entity)
+	}, _InterpreterEntity)
 
-	file.entities[self] = true
-
-	file.state.next_id = file.state.next_id + 1
-	self:_init_globals(file.global_variables)
+	self:_init_globals(grug_entity.file.global_variables)
 	return self
 end
 
-function Entity:_init_globals_impl(global_variables)
+function _InterpreterEntity:_init_globals_impl(global_variables)
 	for _, g in ipairs(global_variables) do
 		self.global_variables[g.name] = self:_run_expr(g.expr)
 	end
@@ -74,7 +85,7 @@ end
 
 local clock = os.clock
 
-function Entity:_init_globals(global_variables)
+function _InterpreterEntity:_init_globals(global_variables)
 	self.fn_name = "init_globals"
 	self.global_variables["me"] = { __grug_type = "id", value = self.me_id }
 
@@ -91,60 +102,7 @@ function Entity:_init_globals(global_variables)
 	end
 end
 
--- Callable proxy used by Entity:__index to avoid closures (LuaJIT NYI: UCLO).
--- Stores the method key as a table field; __call dispatches to _run_on_fn.
-local _on_fn_proxy_mt = {
-	__call = function(t, self2, ...)
-		-- Wrap _run_on_fn in a pcall so that errors thrown by game functions
-		-- (registered Lua callbacks) are caught here rather than inside
-		-- _run_game_fn. Keeping the pcall at this outer level means the hot
-		-- inner loop (_run_game_fn -> wrapper -> game fn) is pcall-free, which
-		-- lets LuaJIT trace through game function returns without hitting
-		-- "NYI: return to lower frame".
-		local ok, err = pcall(self2._run_on_fn, self2, t._key, ...)
-		if not ok then
-			self2._flow = nil
-			-- Game functions may signal errors by throwing a table with
-			-- type = "GAME_FN_ERROR". Handle those exactly as _run_game_fn
-			-- used to, then return without re-throwing.
-			if type(err) == "table" and err.type == "GAME_FN_ERROR" then
-				self2.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", self2.fn_name, self2.file.relative_path)
-				return
-			end
-			-- Any other Lua error: re-throw to the caller.
-			error(err, 0)
-		end
-		local flow = self2._flow
-		if flow then
-			self2._flow = nil
-			error(flow.err or flow, 2)
-		end
-	end,
-}
-local _on_fn_proxy_cache = {}
-
--- This allows calling on_ functions defined in the grug file (e.g., dog:on_spawn()).
-function Entity:__index(key) -- luacheck: ignore
-	local val = rawget(Entity, key)
-	if val ~= nil then
-		return val
-	end
-
-	if type(key) == "string" and string.sub(key, 1, 3) == "on_" then
-		local proxy = _on_fn_proxy_cache[key]
-		if proxy == nil then
-			proxy = setmetatable({ _key = key }, _on_fn_proxy_mt)
-			_on_fn_proxy_cache[key] = proxy
-		end
-		return proxy
-	end
-end
-
-local function _get_expected_type(type_name)
-	return EXPECTED_TYPES[type_name] or "table"
-end
-
-function Entity:_run_on_fn(on_fn_name, ...)
+function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 	local on_fn = self.file.on_fns[on_fn_name]
 	if not on_fn then
 		self._flow = {
@@ -218,7 +176,7 @@ function Entity:_run_on_fn(on_fn_name, ...)
 	-- If should_propagate, self._flow stays set for the proxy to handle
 end
 
-function Entity:_run_statements(statements)
+function _InterpreterEntity:_run_statements(statements)
 	for _, statement in ipairs(statements) do
 		self:_run_statement(statement)
 		if self._flow then
@@ -227,7 +185,7 @@ function Entity:_run_statements(statements)
 	end
 end
 
-function Entity:_run_statement(statement)
+function _InterpreterEntity:_run_statement(statement)
 	local t = statement.stmt_type
 	if t == "VariableStatement" then
 		self:_run_variable_statement(statement)
@@ -246,7 +204,7 @@ function Entity:_run_statement(statement)
 	end
 end
 
-function Entity:_run_variable_statement(statement)
+function _InterpreterEntity:_run_variable_statement(statement)
 	local value = self:_run_expr(statement.expr)
 	if self.global_variables[statement.name] ~= nil then
 		self.global_variables[statement.name] = value
@@ -255,7 +213,7 @@ function Entity:_run_variable_statement(statement)
 	end
 end
 
-function Entity:_run_expr(expr)
+function _InterpreterEntity:_run_expr(expr)
 	local result
 	if expr.bool_val ~= nil then
 		result = expr.bool_val
@@ -303,7 +261,7 @@ function Entity:_run_expr(expr)
 	return result
 end
 
-function Entity:_run_unary_expr(unary_expr)
+function _InterpreterEntity:_run_unary_expr(unary_expr)
 	local val = self:_run_expr(unary_expr.expr)
 	if self._flow then
 		return
@@ -317,7 +275,7 @@ function Entity:_run_unary_expr(unary_expr)
 	end
 end
 
-function Entity:_run_binary_expr(binary_expr)
+function _InterpreterEntity:_run_binary_expr(binary_expr)
 	local left = self:_run_expr(binary_expr.left_expr)
 	if self._flow then
 		return
@@ -331,7 +289,7 @@ function Entity:_run_binary_expr(binary_expr)
 	return BINARY_OPS[binary_expr.operator](left, right)
 end
 
-function Entity:_run_logical_expr(logical_expr)
+function _InterpreterEntity:_run_logical_expr(logical_expr)
 	local left = self:_run_expr(logical_expr.left_expr)
 	if self._flow then
 		return
@@ -355,7 +313,7 @@ function Entity:_run_logical_expr(logical_expr)
 	return right
 end
 
-function Entity:_run_call_expr(call_expr)
+function _InterpreterEntity:_run_call_expr(call_expr)
 	local args = {}
 	for _, arg in ipairs(call_expr.arguments) do
 		local val = self:_run_expr(arg)
@@ -372,7 +330,7 @@ function Entity:_run_call_expr(call_expr)
 	end
 end
 
-function Entity:_run_if_statement(statement)
+function _InterpreterEntity:_run_if_statement(statement)
 	if self:_run_expr(statement.condition) then
 		self:_run_statements(statement.if_body)
 	else
@@ -380,7 +338,7 @@ function Entity:_run_if_statement(statement)
 	end
 end
 
-function Entity:_run_return_statement(statement)
+function _InterpreterEntity:_run_return_statement(statement)
 	if statement.value then
 		local val = self:_run_expr(statement.value)
 		if self._flow then
@@ -392,7 +350,7 @@ function Entity:_run_return_statement(statement)
 	end
 end
 
-function Entity:_run_while_statement_impl(statement)
+function _InterpreterEntity:_run_while_statement_impl(statement)
 	while self:_run_expr(statement.condition) do
 		self:_run_statements(statement.body_statements)
 
@@ -411,7 +369,7 @@ function Entity:_run_while_statement_impl(statement)
 	end
 end
 
-function Entity:_run_while_statement(statement)
+function _InterpreterEntity:_run_while_statement(statement)
 	self:_run_while_statement_impl(statement)
 
 	if self._flow == BREAK then
@@ -420,7 +378,7 @@ function Entity:_run_while_statement(statement)
 	-- RETURN / errors propagate further
 end
 
-function Entity:_check_time_limit_exceeded()
+function _InterpreterEntity:_check_time_limit_exceeded()
 	local limit_sec = self.file.state.on_fn_time_limit_ms / 1000
 	if clock() - self.start_time > limit_sec then
 		self.state.runtime_error_handler(
@@ -433,7 +391,7 @@ function Entity:_check_time_limit_exceeded()
 	end
 end
 
-function Entity:_run_helper_fn(name, args)
+function _InterpreterEntity:_run_helper_fn(name, args)
 	local helper_fn = self.file.helper_fns[name]
 	local parent_local_variables = self.local_variables
 	self.local_variables = {}
@@ -509,7 +467,7 @@ local function _get_wrapper(arg_count)
 	return wrapper
 end
 
-function Entity:_run_game_fn(name, args)
+function _InterpreterEntity:_run_game_fn(name, args)
 	local game_fn = self.file.game_fns[name]
 	assert(game_fn)
 
@@ -520,8 +478,8 @@ function Entity:_run_game_fn(name, args)
 
 	-- Call directly (no pcall) so that LuaJIT can trace through game function
 	-- calls without hitting "NYI: return to lower frame" at a C pcall boundary.
-	-- Errors from game functions propagate up to _on_fn_proxy_mt.__call, which
-	-- wraps the entire _run_on_fn in a pcall and handles GAME_FN_ERROR there.
+	-- Errors from game functions propagate up to InterpreterBackend:call_on_function,
+	-- which wraps _run_on_fn in a pcall and handles GAME_FN_ERROR there.
 	local result = wrapper(game_fn, self.state, args)
 
 	self.fn_name = parent_fn_name

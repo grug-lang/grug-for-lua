@@ -142,7 +142,7 @@ local grug_runtime_err = nil
 
 local game_fn_error_reason = nil
 
-local original_run_game_fn = grug._GrugEntity._run_game_fn
+local original_run_game_fn = grug._InterpreterEntity._run_game_fn
 
 local runtime_error_type_values = {
 	["STACK_OVERFLOW"] = 0,
@@ -492,7 +492,7 @@ local function _test_run_game_fn(self, name, ...)
 	return result
 end
 
-grug._GrugEntity._run_game_fn = _test_run_game_fn
+grug._InterpreterEntity._run_game_fn = _test_run_game_fn
 
 function callbacks.game_fn_error(_state_ptr_, reason_)
 	game_fn_error_reason = ffi.string(reason_)

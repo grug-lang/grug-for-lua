@@ -14,8 +14,8 @@ grug.__index = function(self, key)
 	return grug[key]
 end
 
--- tests.lua patches grug._GrugEntity._run_game_fn().
-grug._GrugEntity = Entity
+-- tests.lua patches grug._InterpreterEntity._run_game_fn().
+grug._InterpreterEntity = _InterpreterEntity
 
 local function is_computercraft_checker()
 	if not os or not os.version then -- luacheck: ignore os
@@ -84,16 +84,8 @@ end
 
 function grug:_recompile_with_hot_reload(rel_path, existing)
 	local new_file = self:_compile_grug_file(rel_path)
-
-	-- Transfer existing entities from the old file to the new version
-	if existing then
-		for entity, _ in pairs(existing.entities or {}) do
-			entity.file = new_file
-			entity:_init_globals(new_file.global_variables)
-			new_file.entities[entity] = true
-		end
-	end
-
+	-- Notify the backend: migrate entity data on hot reload, no-op on fresh compile.
+	self.backend:insert_file(new_file, existing)
 	return new_file
 end
 
@@ -507,5 +499,6 @@ function grug.init(settings)
 		fn_depth = 0,
 		_mods = nil,
 		grug_files = settings.grug_files,
+		backend = settings.backend or InterpreterBackend.new(),
 	}, grug)
 end

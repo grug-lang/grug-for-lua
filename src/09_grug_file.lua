@@ -34,5 +34,5 @@ function GrugFile.new(
 end
 
 function GrugFile:create_entity()
-	return Entity.new(self)
+	return GrugEntity.new(self)
 end
