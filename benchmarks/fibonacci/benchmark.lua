@@ -80,6 +80,90 @@ utils.benchmark("grug interpreter backend", function()
 	on_run(e)
 end)
 
-utils.save_results()
+--[[ TODO: Make this work:
+state.set_backend(transpiler_backend)
 
--- TODO: Benchmark grug transpiler backend
+local file2 = state.mods["mymod"]["fib-Benchmark.grug"]
+local e2 = file:create_entity()
+
+local on_inc2 = e2.on_run
+]]
+--
+
+-- TODO: Replace with real transpilation
+local loader = load or loadstring -- Lua 5.1 uses loadstring; 5.2+ uses load
+local chunk = assert(loader([[
+	local List
+	local Dict
+	local list_append
+	local dict_has_key
+	local dict_get
+	local dict_set
+	local assert_fib
+
+	local fns = {}
+
+	local e = {
+		count = 50,
+	}
+
+	local function helper_fib(n, memo)
+		if dict_has_key(nil, memo, n) then
+			return dict_get(nil, memo, n)
+		end
+
+		local result = n
+		if n > 1 then
+			result = helper_fib(n - 1, memo) + helper_fib(n - 2, memo)
+		end
+
+		dict_set(nil, memo, n, result)
+		return result
+	end
+
+	local function helper_fib_list(n)
+		local fib_list = List()
+
+		local memo = Dict()
+
+		local i = 0
+		while i <= n do
+			list_append(nil, fib_list, helper_fib(i, memo))
+			i = i + 1
+		end
+
+		return fib_list
+	end
+
+	function fns.on_run()
+		local fib_numbers = helper_fib_list(e.count)
+		assert_fib(nil, fib_numbers)
+	end
+
+	function fns.init(deps)
+		List = deps.List
+		Dict = deps.Dict
+		list_append = deps.list_append
+		dict_has_key = deps.dict_has_key
+		dict_get = deps.dict_get
+		dict_set = deps.dict_set
+		assert_fib = deps.assert_fib
+	end
+
+	return fns
+]]))()
+
+chunk.init({
+	List = List,
+	Dict = Dict,
+	list_append = list_append,
+	dict_has_key = dict_has_key,
+	dict_get = dict_get,
+	dict_set = dict_set,
+	assert_fib = assert_fib,
+})
+
+local chunk_on_run = chunk.on_run
+utils.benchmark("grug transpiler backend", chunk_on_run)
+
+utils.save_results()
