@@ -9,6 +9,8 @@ local utils = {}
 
 local specializations = {}
 
+local clock = os.clock
+
 function utils.log(...)
 	print(...)
 	io.flush()
@@ -21,16 +23,16 @@ function utils.benchmark(name, fn)
 	utils.log("Warming up...")
 
 	-- 1. Warmup phase: Run for exactly 1.0 second
-	-- We use batch_size to avoid calling os.clock() too frequently
+	-- We use batch_size to avoid calling clock() too frequently
 	local warmup_iterations = 0
-	local warmup_start = os.clock()
-	while os.clock() - warmup_start < 1.0 do
+	local warmup_start = clock()
+	while clock() - warmup_start < 1.0 do
 		for _ = 1, batch_size do
 			fn()
 		end
 		warmup_iterations = warmup_iterations + batch_size
 	end
-	local actual_warmup_time = os.clock() - warmup_start
+	local actual_warmup_time = clock() - warmup_start
 
 	-- 2. Calculate scaled iterations for the measured phase
 	-- iterations = (iters / 1s) * measured_seconds
@@ -39,11 +41,11 @@ function utils.benchmark(name, fn)
 	utils.log("Measuring...")
 
 	-- 3. Actual measurement
-	local start = os.clock()
+	local start = clock()
 	for _ = 1, total_measured_iterations do
 		fn()
 	end
-	local finish = os.clock()
+	local finish = clock()
 
 	local elapsed = finish - start
 
