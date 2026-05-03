@@ -219,9 +219,13 @@ local function register_fns(state)
 end
 
 local function is_dir(path)
-	if path == ".grug-tmp/hot_reloading" then
+	if path == ".grug_tmp_code_reloading/code_reloading" then
 		return true
-	elseif path == ".grug-tmp/hot_reloading/code_reloading-D.grug" then
+	elseif path == ".grug_tmp_reloading_empty_file/reloading_empty_file" then
+		return true
+	elseif path == ".grug_tmp_code_reloading/code_reloading/input-D.grug" then
+		return false
+	elseif path == ".grug_tmp_reloading_empty_file/reloading_empty_file/input-D.grug" then
 		return false
 	else
 		error('Missing elseif for is_dir("' .. path .. '")')
@@ -229,10 +233,14 @@ local function is_dir(path)
 end
 
 local function list_dir(path)
-	if path == ".grug-tmp" then
-		return { "hot_reloading" }
-	elseif path == ".grug-tmp/hot_reloading" then
-		return { "code_reloading-D.grug" }
+	if path == ".grug_tmp_code_reloading" then
+		return { "code_reloading" }
+	elseif path == ".grug_tmp_reloading_empty_file" then
+		return { "reloading_empty_file" }
+	elseif path == ".grug_tmp_code_reloading/code_reloading" then
+		return { "input-D.grug" }
+	elseif path == ".grug_tmp_reloading_empty_file/reloading_empty_file" then
+		return { "input-D.grug" }
 	else
 		error('Missing elseif for list_dir("' .. path .. '")')
 	end
@@ -292,9 +300,9 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 
 	local file
 	local ok, err = pcall(function()
-		if file_path == "hot_reloading/code_reloading-D.grug" then
+		if file_path == "code_reloading/input-D.grug" then
 			state:_update()
-			file = state.mods["hot_reloading"]["code_reloading-D.grug"]
+			file = state.mods["code_reloading"]["input-D.grug"]
 		else
 			file = state:_compile_grug_file(file_path)
 		end
@@ -384,15 +392,14 @@ function callbacks.update(state_ptr_, error_out_)
 	end)
 
 	if not ok then
-		-- TODO: Check that this block is reachable if a typo is introduced in the example grug file
-		--       Consider adding another hot reloading test which checks that state:update() doesn't fail silently
+		err = get_msg_from_lua_error(err)
 		error_out_[0] = get_c_error_string(err)
 		return
 	end
 
 	-- We have to manually overwrite the old file in the files list,
 	-- purely because test_grug.py tries to emulate the grug implementation.
-	file = state.mods["hot_reloading"]["code_reloading-D.grug"]
+	file = state.mods["code_reloading"]["input-D.grug"]
 	files[last_file_id] = file
 
 	error_out_[0] = nil

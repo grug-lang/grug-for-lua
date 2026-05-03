@@ -116,10 +116,6 @@ local function _update_from_list(self)
 		local abs_path = self.mods_dir_path .. "/" .. rel_path
 
 		local text = self.fs.read(abs_path)
-		if text == "" then
-			error("File is empty")
-		end
-
 		local existing = current_dir.files[filename]
 
 		if not existing or existing.version ~= self.fs.get_file_version(abs_path, text) then
@@ -177,10 +173,6 @@ function grug:_update()
 					seen_files[rel_path] = true
 
 					local text = self.fs.read(entry_path)
-					if text == "" then
-						error("File is empty")
-					end
-
 					local existing = grug_dir.files[entry_name]
 
 					if not existing or existing.version ~= self.fs.get_file_version(entry_path, text) then
@@ -287,6 +279,9 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	local grug_file_absolute_path = self.mods_dir_path .. "/" .. grug_file_relative_path
 
 	local text = self.fs.read(grug_file_absolute_path)
+	if text == "" then
+		error("File is empty")
+	end
 
 	local version = self.fs.get_file_version(grug_file_absolute_path, text)
 
