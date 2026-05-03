@@ -293,7 +293,7 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 	local file
 	local ok, err = pcall(function()
 		if file_path == "hot_reloading/code_reloading-D.grug" then
-			state:update()
+			state:_update()
 			file = state.mods["hot_reloading"]["code_reloading-D.grug"]
 		else
 			file = state:_compile_grug_file(file_path)
@@ -380,7 +380,7 @@ function callbacks.update(state_ptr_, error_out_)
 
 	local file
 	local ok, err = pcall(function()
-		state:update()
+		state:_update()
 	end)
 
 	if not ok then

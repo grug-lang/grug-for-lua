@@ -2525,7 +2525,7 @@ local _on_fn_proxy_mt = {
 		local flow = self2._flow
 		if flow then
 			self2._flow = nil
-			error(flow.err or flow)
+			error(flow.err or flow, 2)
 		end
 	end,
 }
@@ -3034,7 +3034,7 @@ grug.__index = function(self, key)
 	-- property-style access: state.mods
 	if key == "mods" then
 		if self._mods == nil then
-			self:update()
+			self:_update()
 		end
 
 		assert(self._mods, "mods not initialized")
@@ -3144,21 +3144,31 @@ local function _update_from_list(self)
 		end
 
 		local filename = parts[#parts]
-		local existing = current_dir.files[filename]
 		local abs_path = self.mods_dir_path .. "/" .. rel_path
 
-		-- Logic check: only recompile if content has changed (version mismatch)
 		local text = self.fs.read(abs_path)
-		local current_version = self.fs.get_file_version(abs_path, text)
+		if text == "" then
+			error("File is empty")
+		end
 
-		if not existing or existing.version ~= current_version then
+		local existing = current_dir.files[filename]
+
+		if not existing or existing.version ~= self.fs.get_file_version(abs_path, text) then
 			current_dir.files[filename] = self:_recompile_with_hot_reload(rel_path, existing)
 		end
 	end
 end
 
--- This (re)compiles grug files using mark-and-sweep.
+-- This (re)compiles grug files using mark-and-sweep, and prints any error.
 function grug:update()
+	local ok, err = pcall(grug._update, self)
+	if not ok then
+		print(err)
+	end
+end
+
+-- This (re)compiles grug files using mark-and-sweep.
+function grug:_update()
 	if self._mods == nil then
 		self._mods = GrugDir.new("mods")
 	end
@@ -3193,17 +3203,18 @@ function grug:update()
 						grug_dir.dirs[entry_name] = sub
 					end
 					update_dir(entry_path, sub)
-
-				-- Inside grug:update() mark-and-sweep scan
 				elseif entry_name:sub(-5) == ".grug" then
 					local rel_path = entry_path:sub(#self.mods_dir_path + 2)
 					seen_files[rel_path] = true
 
-					local existing = grug_dir.files[entry_name]
 					local text = self.fs.read(entry_path)
-					local current_version = self.fs.get_file_version(entry_path, text)
+					if text == "" then
+						error("File is empty")
+					end
 
-					if not existing or existing.version ~= current_version then
+					local existing = grug_dir.files[entry_name]
+
+					if not existing or existing.version ~= self.fs.get_file_version(entry_path, text) then
 						grug_dir.files[entry_name] = self:_recompile_with_hot_reload(rel_path, existing)
 					end
 				end

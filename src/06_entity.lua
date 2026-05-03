@@ -117,7 +117,7 @@ local _on_fn_proxy_mt = {
 		local flow = self2._flow
 		if flow then
 			self2._flow = nil
-			error(flow.err or flow)
+			error(flow.err or flow, 2)
 		end
 	end,
 }
