@@ -50,9 +50,10 @@ function InterpreterBackend:call_on_function(entity, on_fn_name, ...) -- luachec
 	local ok, err = pcall(interp._run_on_fn, interp, on_fn_name, ...)
 	if not ok then
 		interp._flow = nil
-		-- Game functions may signal errors by throwing a table with
-		-- type = "GAME_FN_ERROR". Handle those here.
-		if type(err) == "table" and err.type == "GAME_FN_ERROR" then
+		-- In safe mode, game functions signal errors by throwing a table with
+		-- type = "GAME_FN_ERROR"; route those to runtime_error_handler.
+		-- When safe_mode is false the raw error is re-raised like any other.
+		if interp.state.safe_mode and type(err) == "table" and err.type == "GAME_FN_ERROR" then
 			interp.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", interp.fn_name, interp.file.relative_path)
 			return
 		end

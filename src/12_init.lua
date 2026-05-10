@@ -465,6 +465,13 @@ function grug.init(settings)
 	local on_fn_time_limit_ms = settings.on_fn_time_limit_ms or 100
 	local packages = settings.packages or {}
 
+	-- safe_mode=true (the default) means backends must intercept all runtime
+	-- errors (STACK_OVERFLOW, TIME_LIMIT_EXCEEDED, GAME_FN_ERROR) and route
+	-- them to runtime_error_handler instead of letting them propagate as raw
+	-- Lua errors. Set to false only when you want the raw errors to surface
+	-- (e.g. for certain test harness scenarios, or for performance).
+	local safe_mode = settings.safe_mode or true
+
 	local fs = {}
 	local sfs = settings.fs or {}
 
@@ -497,8 +504,11 @@ function grug.init(settings)
 		game_fns = {},
 		next_id = 0,
 		fn_depth = 0,
+		safe_mode = safe_mode,
 		_mods = nil,
+		_executed_file = nil,
+		_executed_entity = nil,
 		grug_files = settings.grug_files,
-		backend = settings.backend or InterpreterBackend.new(),
+		backend = settings.backend or TranspilerBackend.new(),
 	}, grug)
 end

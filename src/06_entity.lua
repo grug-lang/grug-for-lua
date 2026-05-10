@@ -86,6 +86,11 @@ end
 local clock = os.clock
 
 function _InterpreterEntity:_init_globals(global_variables)
+	local old_executed_file = self.state._executed_file
+	self.state._executed_file = self.file
+	local old_executed_entity = self.state._executed_entity
+	self.state._executed_entity = self
+
 	self.fn_name = "init_globals"
 	self.global_variables["me"] = { __grug_type = "id", value = self.me_id }
 
@@ -96,6 +101,9 @@ function _InterpreterEntity:_init_globals(global_variables)
 	local ok, err = pcall(self._init_globals_impl, self, global_variables)
 
 	self.state.fn_depth = old_fn_depth
+
+	self.state._executed_entity = old_executed_entity
+	self.state._executed_file = old_executed_file
 
 	if not ok then
 		error(err)
@@ -112,10 +120,17 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 		return
 	end
 
+	local old_fn_name = self.fn_name
+	self.fn_name = on_fn_name
+
+	local old_executed_file = self.state._executed_file
+	self.state._executed_file = self.file
+	local old_executed_entity = self.state._executed_entity
+	self.state._executed_entity = self
+
 	local args = { ... }
 	local parent_local_variables = self.local_variables
 	self.local_variables = {}
-	self.fn_name = on_fn_name
 
 	-- Assign and verify argument types
 	for i, argument in ipairs(on_fn.arguments) do
@@ -169,6 +184,11 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 	self.state.fn_depth = old_fn_depth
 	self.on_fn_depth = old_on_fn_depth
 	self.local_variables = parent_local_variables
+
+	self.fn_name = old_fn_name
+
+	self.state._executed_entity = old_executed_entity
+	self.state._executed_file = old_executed_file
 
 	if not should_propagate then
 		self._flow = nil
@@ -471,8 +491,6 @@ function _InterpreterEntity:_run_game_fn(name, args)
 	local game_fn = self.file.game_fns[name]
 	assert(game_fn)
 
-	local parent_fn_name = self.fn_name
-
 	-- Get or create a wrapper specific to this argument count.
 	local wrapper = _get_wrapper(#args)
 
@@ -481,8 +499,6 @@ function _InterpreterEntity:_run_game_fn(name, args)
 	-- Errors from game functions propagate up to InterpreterBackend:call_on_function,
 	-- which wraps _run_on_fn in a pcall and handles GAME_FN_ERROR there.
 	local result = wrapper(game_fn, self.state, args)
-
-	self.fn_name = parent_fn_name
 
 	local t = self.file.game_fn_return_types[name]
 	if t == nil then

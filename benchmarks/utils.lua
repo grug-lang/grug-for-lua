@@ -1,3 +1,4 @@
+local grug = require("grug")
 local json = require("json")
 
 -- CLI Arguments
@@ -14,6 +15,12 @@ local clock = os.clock
 function utils.log(...)
 	print(...)
 	io.flush()
+end
+
+function utils.register_fns(state, fns)
+	for fn_name, fn in pairs(fns) do
+		state:register(fn_name, fn)
+	end
 end
 
 -- Measures execution time of a function
@@ -55,6 +62,19 @@ function utils.benchmark(name, fn)
 		iterations = total_measured_iterations,
 		iters_per_sec = total_measured_iterations / elapsed,
 	})
+end
+
+function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
+	for _, config in ipairs({
+		{ backend = grug.TranspilerBackend, safe = true, name = "safe grug transpiler backend" },
+		{ backend = grug.InterpreterBackend, safe = true, name = "safe grug interpreter backend" },
+		{ backend = grug.TranspilerBackend, safe = false, name = "unsafe grug transpiler backend" },
+		{ backend = grug.InterpreterBackend, safe = false, name = "unsafe grug interpreter backend" },
+	}) do
+		grug_settings.backend = config.backend
+		grug_settings.safe = config.safe
+		benchmark(grug.init(grug_settings), config.name)
+	end
 end
 
 function utils.save_results()

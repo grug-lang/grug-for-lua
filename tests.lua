@@ -142,8 +142,6 @@ local grug_runtime_err = nil
 
 local game_fn_error_reason = nil
 
-local original_run_game_fn = grug._InterpreterEntity._run_game_fn
-
 local runtime_error_type_values = {
 	["STACK_OVERFLOW"] = 0,
 	["TIME_LIMIT_EXCEEDED"] = 1,
@@ -184,37 +182,64 @@ local LUA_TO_C_ARG = {
 	end,
 }
 
+local function _raise_game_fn_error_if_needed(state)
+	if not game_fn_error_reason then
+		return
+	end
+
+	local reason = game_fn_error_reason
+	game_fn_error_reason = nil
+
+	assert(state._executed_file)
+	assert(state._executed_entity)
+
+	state.runtime_error_handler(
+		reason,
+		"GAME_FN_ERROR",
+		state._executed_entity.fn_name,
+		state._executed_file.relative_path
+	)
+
+	error({ type = "RERAISED_GAME_FN_ERROR", reason = reason })
+end
+
+local function register_fn(state, name)
+	local c_fn = grug_lib["game_fn_" .. name]
+	local return_type = state.mod_api.game_functions[name].return_type
+
+	state:register(name, function(st, ...) -- luacheck: ignore
+		local args = { ... }
+		local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
+
+		for i, v in ipairs(args) do
+			local setter = LUA_TO_C_ARG[type(v)]
+			if not setter then
+				error("Unsupported argument type: " .. type(v))
+			end
+			setter(c_args[i - 1], v)
+		end
+
+		local result_u64 = c_fn(nil, c_args)
+
+		_raise_game_fn_error_if_needed(state)
+
+		if grug_runtime_err ~= nil then
+			error(grug_runtime_err)
+		end
+
+		local tmp = ffi.new("uint64_t[1]")
+		tmp[0] = result_u64
+
+		local union = ffi.new("GrugValueUnion")
+		ffi.copy(union, tmp, ffi.sizeof("GrugValueUnion"))
+
+		return c_to_lua_value(union, return_type)
+	end)
+end
+
 local function register_fns(state)
 	for _, name in ipairs(game_fn_names) do
-		local c_fn = grug_lib["game_fn_" .. name]
-		local return_type = state.mod_api.game_functions[name].return_type
-
-		state:register(name, function(st, ...) -- luacheck: ignore
-			local args = { ... }
-			local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
-
-			for i, v in ipairs(args) do
-				local setter = LUA_TO_C_ARG[type(v)]
-				if not setter then
-					error("Unsupported argument type: " .. type(v))
-				end
-				setter(c_args[i - 1], v)
-			end
-
-			local result_u64 = c_fn(nil, c_args)
-
-			if grug_runtime_err ~= nil then
-				error(grug_runtime_err)
-			end
-
-			local tmp = ffi.new("uint64_t[1]")
-			tmp[0] = result_u64
-
-			local union = ffi.new("GrugValueUnion")
-			ffi.copy(union, tmp, ffi.sizeof("GrugValueUnion"))
-
-			return c_to_lua_value(union, return_type)
-		end)
+		register_fn(state, name)
 	end
 end
 
@@ -304,7 +329,7 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 			state:_update()
 			file = state.mods["code_reloading"]["input-D.grug"]
 		else
-			file = state:_compile_grug_file(file_path)
+			file = state:_recompile_with_hot_reload(file_path)
 		end
 	end)
 
@@ -477,22 +502,6 @@ end
 
 callbacks.grug_to_json = make_io_callback("grug_to_json")
 callbacks.json_to_grug = make_io_callback("json_to_grug")
-
-local function _test_run_game_fn(self, name, ...)
-	local result = original_run_game_fn(self, name, ...)
-
-	if game_fn_error_reason then
-		local reason = game_fn_error_reason
-		game_fn_error_reason = nil
-
-		self.state.runtime_error_handler(reason, "GAME_FN_ERROR", self.fn_name, self.file.relative_path)
-		error({ type = "RERAISED_GAME_FN_ERROR", reason = reason })
-	end
-
-	return result
-end
-
-grug._InterpreterEntity._run_game_fn = _test_run_game_fn
 
 function callbacks.game_fn_error(_state_ptr_, reason_)
 	game_fn_error_reason = ffi.string(reason_)
