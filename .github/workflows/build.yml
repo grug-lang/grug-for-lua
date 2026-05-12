@@ -76,7 +76,7 @@ jobs:
         if: matrix.lua == 'luajit'
         run: git diff --exit-code
 
-      # TODO: Move this below the "Run Lua example (minimal)" step
+      # TODO: Move this below the "Run all Lua examples" step
       - name: Run benchmarks
         if: matrix.lua == 'luajit'
         run: |
@@ -84,8 +84,14 @@ jobs:
             --impl "luajit -jv" luajit.json \
             2>&1 | tee luajit.log
 
-          if grep -q 'NYI' luajit.log; then
-              echo "ERROR: NYI detected in LuaJIT trace output" >&2
+          # Inside the safe grug transpiler backend block ONLY, delete the whitelisted NYI
+          # The NYI can actually speed up the benchmark, see: https://github.com/grug-lang/grug-for-lua/issues/16
+          CLEANED_LOG=$(sed '/--- Benchmarking safe grug transpiler backend ---/,/--- Finished benchmarking safe grug transpiler backend ---/ { /stitch.*NYI: return to lower frame/d; }' luajit.log)
+
+          # Check if any NYI strings remain
+          if echo "$CLEANED_LOG" | grep -q 'NYI'; then
+              echo "ERROR: Unexpected NYI detected in LuaJIT trace output" >&2
+              echo "$CLEANED_LOG" | grep 'NYI' >&2
               exit 1
           fi
 

@@ -28,7 +28,7 @@ end
 
 -- Measures execution time of a function
 function utils.benchmark(name, fn, entity)
-	utils.log("Benchmarking " .. name .. "...")
+	utils.log("--- Benchmarking " .. name .. " ---")
 
 	utils.log("Warming up...")
 
@@ -65,6 +65,8 @@ function utils.benchmark(name, fn, entity)
 		iterations = total_measured_iterations,
 		iters_per_sec = total_measured_iterations / elapsed,
 	})
+
+	utils.log("--- Finished benchmarking " .. name .. " ---")
 end
 
 local configs = {

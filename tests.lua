@@ -544,7 +544,7 @@ local configs = {
 
 for _, config in ipairs(configs) do
 	current_config = config
-	print("=== Running " .. config.name .. " ===")
+	print("=== Testing " .. config.name .. " ===")
 
 	grug_lib.grug_tests_run(grug_tests_path .. "/tests", grug_tests_path .. "/mod_api.json", vtable, whitelisted_test)
 
