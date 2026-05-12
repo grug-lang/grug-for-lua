@@ -86,7 +86,7 @@ jobs:
 
           # Inside the safe grug transpiler backend block ONLY, delete the whitelisted NYI
           # The NYI can actually speed up the benchmark, see: https://github.com/grug-lang/grug-for-lua/issues/16
-          CLEANED_LOG=$(sed '/--- Benchmarking safe grug transpiler backend ---/,/--- Finished benchmarking safe grug transpiler backend ---/ { /stitch.*NYI: return to lower frame/d; }' luajit.log)
+          CLEANED_LOG=$(sed '/--- Benchmarking safe grug transpiler backend ---/,/--- Finished benchmarking safe grug transpiler backend ---/ { /NYI: return to lower frame/d; }' luajit.log)
 
           # Check if any NYI strings remain
           if echo "$CLEANED_LOG" | grep -q 'NYI'; then
