@@ -14,9 +14,6 @@ grug.__index = function(self, key)
 	return grug[key]
 end
 
--- tests.lua patches grug._InterpreterEntity._run_game_fn().
-grug._InterpreterEntity = _InterpreterEntity
-
 local function is_computercraft_checker()
 	if not os or not os.version then -- luacheck: ignore os
 		return false
@@ -470,7 +467,12 @@ function grug.init(settings)
 	-- them to runtime_error_handler instead of letting them propagate as raw
 	-- Lua errors. Set to false only when you want the raw errors to surface
 	-- (e.g. for certain test harness scenarios, or for performance).
-	local safe_mode = settings.safe_mode or true
+	local safe_mode = settings.safe_mode ~= false
+
+	-- This setting only has an effect on transpiler backends.
+	-- Setting it to true tells transpilers to output a `transpiler_dump.lua`
+	-- file to the current directory, before they load() it.
+	local transpiler_dump = settings.transpiler_dump
 
 	local fs = {}
 	local sfs = settings.fs or {}
@@ -505,6 +507,7 @@ function grug.init(settings)
 		next_id = 0,
 		fn_depth = 0,
 		safe_mode = safe_mode,
+		transpiler_dump = transpiler_dump,
 		_mods = nil,
 		_executed_file = nil,
 		_executed_entity = nil,

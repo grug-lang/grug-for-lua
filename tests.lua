@@ -1,6 +1,6 @@
-local grug = require("grug")
-
 local ffi = require("ffi")
+local grug = require("grug")
+local interpreter_backend = require("alternative_backends/interpreter_backend")
 
 local whitelisted_test = arg[1]
 if whitelisted_test == "" then
@@ -127,6 +127,8 @@ for _, name in ipairs(game_fn_names) do
 end
 
 local grug_lib = ffi.load(grug_tests_path .. "/build/libtests.so")
+
+local current_config = nil
 
 local callbacks = {}
 
@@ -285,6 +287,8 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
 				list_dir = list_dir,
 				is_dir = is_dir,
 			},
+			safe_mode = current_config.safe_mode,
+			backend = current_config.backend,
 		})
 	end)
 
@@ -521,8 +525,32 @@ local vtable = ffi.new("grug_state_vtable", {
 	game_fn_error = callbacks.game_fn_error,
 })
 
-grug_lib.grug_tests_run(grug_tests_path .. "/tests", grug_tests_path .. "/mod_api.json", vtable, whitelisted_test)
+local function reset_state()
+	states = {}
+	files = {}
+	entities = {}
+	last_file_id = nil
+	last_error = nil
+	grug_runtime_err = nil
+	game_fn_error_reason = nil
+end
 
-assert(#states == 0)
-assert(#files == 0)
-assert(#entities == 0)
+local configs = {
+	{ name = "safe grug transpiler backend" },
+	{ name = "unsafe grug transpiler backend", safe = false },
+	{ name = "safe grug interpreter backend", backend = interpreter_backend },
+	{ name = "unsafe grug interpreter backend", backend = interpreter_backend, safe = false },
+}
+
+for _, config in ipairs(configs) do
+	current_config = config
+	print("=== Running " .. config.name .. " ===")
+
+	grug_lib.grug_tests_run(grug_tests_path .. "/tests", grug_tests_path .. "/mod_api.json", vtable, whitelisted_test)
+
+	assert(#states == 0)
+	assert(#files == 0)
+	assert(#entities == 0)
+
+	reset_state()
+end

@@ -1,4 +1,7 @@
+package.path = package.path .. ";../../?.lua"
+
 local grug = require("grug")
+local interpreter_backend = require("alternative_backends/interpreter_backend")
 local json = require("json")
 
 -- CLI Arguments
@@ -24,7 +27,7 @@ function utils.register_fns(state, fns)
 end
 
 -- Measures execution time of a function
-function utils.benchmark(name, fn)
+function utils.benchmark(name, fn, entity)
 	utils.log("Benchmarking " .. name .. "...")
 
 	utils.log("Warming up...")
@@ -35,7 +38,7 @@ function utils.benchmark(name, fn)
 	local warmup_start = clock()
 	while clock() - warmup_start < 1.0 do
 		for _ = 1, batch_size do
-			fn()
+			fn(entity)
 		end
 		warmup_iterations = warmup_iterations + batch_size
 	end
@@ -50,7 +53,7 @@ function utils.benchmark(name, fn)
 	-- 3. Actual measurement
 	local start = clock()
 	for _ = 1, total_measured_iterations do
-		fn()
+		fn(entity)
 	end
 	local finish = clock()
 
@@ -64,15 +67,18 @@ function utils.benchmark(name, fn)
 	})
 end
 
+local configs = {
+	{ name = "safe grug transpiler backend" },
+	{ name = "unsafe grug transpiler backend", safe_mode = false },
+	{ name = "safe grug interpreter backend", backend = interpreter_backend },
+	{ name = "unsafe grug interpreter backend", backend = interpreter_backend, safe_mode = false },
+}
+
 function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
-	for _, config in ipairs({
-		{ backend = grug.TranspilerBackend, safe = true, name = "safe grug transpiler backend" },
-		{ backend = grug.InterpreterBackend, safe = true, name = "safe grug interpreter backend" },
-		{ backend = grug.TranspilerBackend, safe = false, name = "unsafe grug transpiler backend" },
-		{ backend = grug.InterpreterBackend, safe = false, name = "unsafe grug interpreter backend" },
-	}) do
+	for _, config in ipairs(configs) do
 		grug_settings.backend = config.backend
-		grug_settings.safe = config.safe
+		grug_settings.safe_mode = config.safe_mode
+		-- grug_settings.transpiler_dump = true -- Use to debug any NYIs
 		benchmark(grug.init(grug_settings), config.name)
 	end
 end

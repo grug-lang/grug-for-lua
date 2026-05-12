@@ -1,7 +1,7 @@
-package.path = package.path .. ";../?.lua;../../?.lua"
+package.path = package.path .. ";../?.lua"
 
 local ref = require("reference")
-local utils = require("utils")
+local utils = require("../utils")
 
 local fns = {}
 
@@ -55,6 +55,21 @@ local function assert_fib(_, list)
 end
 fns["assert_fib"] = assert_fib
 
+local function benchmark(state, name)
+	utils.register_fns(state, fns)
+
+	utils.log("Compiling grug code...")
+	local file = state.mods["mymod"]["fib-Benchmark.grug"]
+	local e = file:create_entity()
+
+	local on_run = e.on_run
+	utils.benchmark(name, on_run, e)
+end
+
+utils.benchmark_interpreter_and_transpiler({
+	grug_files = { "mymod/fib-Benchmark.grug" },
+}, benchmark)
+
 do
 	ref.init({
 		List = List,
@@ -69,20 +84,5 @@ do
 	local on_run = ref.on_run
 	utils.benchmark("unsafe lua reference", on_run)
 end
-
-utils.benchmark_interpreter_and_transpiler({
-	grug_files = { "mymod/fib-Benchmark.grug" },
-}, function(state, name)
-	utils.register_fns(state, fns)
-
-	utils.log("Compiling grug code...")
-	local file = state.mods["mymod"]["fib-Benchmark.grug"]
-	local e = file:create_entity()
-
-	local on_run = e.on_run
-	utils.benchmark(name, function()
-		on_run(e)
-	end)
-end)
 
 utils.save_results()

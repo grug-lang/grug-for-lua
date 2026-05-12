@@ -422,12 +422,22 @@ function TranspilerBackend:insert_file(new_file, existing_file) -- luacheck: ign
 	end
 end
 
+local loader = loadstring or load
+
 -- Populate entity.data with a fresh chunk execution (its own `e` upvalue closure).
 function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	local code = entity.file._transpiled_code
-	local chunk_loader = load or loadstring
 
-	local chunk_fn, err = chunk_loader(code)
+	-- Dump transpiled source to disk before loading, if requested.
+	if entity.state.transpiler_dump then
+		local dump_file = io.open("transpiler_dump.lua", "w")
+		if dump_file then
+			dump_file:write(code)
+			dump_file:close()
+		end
+	end
+
+	local chunk_fn, err = loader(code)
 
 	if not chunk_fn then
 		error("Failed to compile transpiled Lua:\n```lua\n" .. code .. "```\nLua error:\n" .. tostring(err))
@@ -456,7 +466,6 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	if entity.state.safe_mode then
 		-- Wrap init in a pcall so that Lua stack overflows or GAME_FN_ERROR
 		-- throws during global-variable initialisation are caught.
-		-- Re-raise unrecognised errors just like InterpreterBackend does.
 		local ok, init_err = pcall(chunk.init, deps, entity.me_id)
 
 		entity.state._executed_entity = old_executed_entity
