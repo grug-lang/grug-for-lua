@@ -148,196 +148,192 @@ local function ast_to_json_text(ast)
 end
 
 -- ======================
--- GRUG Output
+-- grug Output
 -- ======================
-local function ast_to_grug(ast)
-	local output, indentation = {}, 0
+local function write(text, output)
+	table.insert(output, text)
+end
 
-	local function write(text)
-		table.insert(output, text)
-	end
+local function indent(indentation, output)
+	write(string.rep("    ", indentation[1]), output)
+end
 
-	local function indent()
-		write(string.rep("    ", indentation))
-	end
+local function apply_expr(expr, output)
+	local t = expr.type
 
-	-- ===== Expressions =====
-	local function apply_expr(expr)
-		local t = expr.type
-
-		if t == "TRUE_EXPR" then
-			write("true")
-		elseif t == "FALSE_EXPR" then
-			write("false")
-		elseif t == "STRING_EXPR" then
-			write('"' .. expr.str .. '"')
-		elseif t == "ENTITY_EXPR" then
-			write('e"' .. expr.str .. '"')
-		elseif t == "RESOURCE_EXPR" then
-			write('r"' .. expr.str .. '"')
-		elseif t == "IDENTIFIER_EXPR" then
-			write(expr.str)
-		elseif t == "NUMBER_EXPR" then
-			write(tostring(expr.value))
-		elseif t == "UNARY_EXPR" then
-			write(expr.operator == "MINUS_TOKEN" and "-" or "not ")
-			apply_expr(expr.expr)
-		elseif t == "BINARY_EXPR" then
-			local op_map = {
-				PLUS_TOKEN = "+",
-				MINUS_TOKEN = "-",
-				MULTIPLICATION_TOKEN = "*",
-				DIVISION_TOKEN = "/",
-				EQUALS_TOKEN = "==",
-				NOT_EQUALS_TOKEN = "!=",
-				GREATER_OR_EQUAL_TOKEN = ">=",
-				GREATER_TOKEN = ">",
-				LESS_OR_EQUAL_TOKEN = "<=",
-				LESS_TOKEN = "<",
-			}
-			apply_expr(expr.left_expr)
-			write(" " .. op_map[expr.operator] .. " ")
-			apply_expr(expr.right_expr)
-		elseif t == "LOGICAL_EXPR" then
-			apply_expr(expr.left_expr)
-			write(expr.operator == "AND_TOKEN" and " and " or " or ")
-			apply_expr(expr.right_expr)
-		elseif t == "CALL_EXPR" then
-			write(expr.name .. "(")
-			for i, arg in ipairs(expr.arguments or {}) do
-				if i > 1 then
-					write(", ")
-				end
-				apply_expr(arg)
-			end
-			write(")")
-		elseif t == "PARENTHESIZED_EXPR" then
-			write("(")
-			apply_expr(expr.expr)
-			write(")")
-		end
-	end
-
-	-- ===== Statements =====
-	local apply_statement -- Forward declaration
-
-	local function apply_statements(statements)
-		indentation = indentation + 1
-		for _, s in ipairs(statements or {}) do
-			if s.type == "EMPTY_LINE_STATEMENT" then
-				write("\n")
-			else
-				indent()
-				apply_statement(s)
-			end
-		end
-		indentation = indentation - 1
-	end
-
-	local function apply_if(stmt)
-		write("if ")
-		apply_expr(stmt.condition)
-		write(" {\n")
-
-		apply_statements(stmt.if_statements)
-
-		if stmt.else_statements and #stmt.else_statements > 0 then
-			indent()
-			write("} else ")
-
-			local first = stmt.else_statements[1]
-			if first and first.type == "IF_STATEMENT" then
-				apply_if(first)
-			else
-				write("{\n")
-				apply_statements(stmt.else_statements)
-				indent()
-				write("}\n")
-			end
-		else
-			indent()
-			write("}\n")
-		end
-	end
-
-	function apply_statement(stmt)
-		local t = stmt.type
-
-		if t == "VARIABLE_STATEMENT" then
-			write(stmt.name)
-			if stmt.variable_type then
-				write(": " .. stmt.variable_type)
-			end
-			write(" = ")
-			apply_expr(stmt.assignment)
-			write("\n")
-		elseif t == "CALL_STATEMENT" then
-			write(stmt.name .. "(")
-			for i, arg in ipairs(stmt.arguments or {}) do
-				if i > 1 then
-					write(", ")
-				end
-				apply_expr(arg)
-			end
-			write(")\n")
-		elseif t == "IF_STATEMENT" then
-			apply_if(stmt)
-		elseif t == "RETURN_STATEMENT" then
-			write("return")
-			if stmt.expr then
-				write(" ")
-				apply_expr(stmt.expr)
-			end
-			write("\n")
-		elseif t == "WHILE_STATEMENT" then
-			write("while ")
-			apply_expr(stmt.condition)
-			write(" {\n")
-			apply_statements(stmt.statements)
-			indent()
-			write("}\n")
-		elseif t == "BREAK_STATEMENT" then
-			write("break\n")
-		elseif t == "CONTINUE_STATEMENT" then
-			write("continue\n")
-		elseif t == "COMMENT_STATEMENT" then
-			write("# " .. stmt.comment .. "\n")
-		end
-	end
-
-	-- ===== Globals =====
-	local function apply_args(args)
-		for i, a in ipairs(args or {}) do
+	if t == "TRUE_EXPR" then
+		write("true", output)
+	elseif t == "FALSE_EXPR" then
+		write("false", output)
+	elseif t == "STRING_EXPR" then
+		write('"' .. expr.str .. '"', output)
+	elseif t == "ENTITY_EXPR" then
+		write('e"' .. expr.str .. '"', output)
+	elseif t == "RESOURCE_EXPR" then
+		write('r"' .. expr.str .. '"', output)
+	elseif t == "IDENTIFIER_EXPR" then
+		write(expr.str, output)
+	elseif t == "NUMBER_EXPR" then
+		write(tostring(expr.value), output)
+	elseif t == "UNARY_EXPR" then
+		write(expr.operator == "MINUS_TOKEN" and "-" or "not ", output)
+		apply_expr(expr.expr, output)
+	elseif t == "BINARY_EXPR" then
+		local op_map = {
+			PLUS_TOKEN = "+",
+			MINUS_TOKEN = "-",
+			MULTIPLICATION_TOKEN = "*",
+			DIVISION_TOKEN = "/",
+			EQUALS_TOKEN = "==",
+			NOT_EQUALS_TOKEN = "!=",
+			GREATER_OR_EQUAL_TOKEN = ">=",
+			GREATER_TOKEN = ">",
+			LESS_OR_EQUAL_TOKEN = "<=",
+			LESS_TOKEN = "<",
+		}
+		apply_expr(expr.left_expr, output)
+		write(" " .. op_map[expr.operator] .. " ", output)
+		apply_expr(expr.right_expr, output)
+	elseif t == "LOGICAL_EXPR" then
+		apply_expr(expr.left_expr, output)
+		write(expr.operator == "AND_TOKEN" and " and " or " or ", output)
+		apply_expr(expr.right_expr, output)
+	elseif t == "CALL_EXPR" then
+		write(expr.name .. "(", output)
+		for i, arg in ipairs(expr.arguments or {}) do
 			if i > 1 then
-				write(", ")
+				write(", ", output)
 			end
-			write(a.name .. ": " .. a.type)
+			apply_expr(arg, output)
+		end
+		write(")", output)
+	elseif t == "PARENTHESIZED_EXPR" then
+		write("(", output)
+		apply_expr(expr.expr, output)
+		write(")", output)
+	end
+end
+
+local apply_statements -- Forward declaration
+local function apply_if(stmt, indentation, output)
+	write("if ", output)
+	apply_expr(stmt.condition, output)
+	write(" {\n", output)
+
+	apply_statements(stmt.if_statements, indentation, output)
+
+	if stmt.else_statements and #stmt.else_statements > 0 then
+		indent(indentation, output)
+		write("} else ", output)
+
+		local first = stmt.else_statements[1]
+		if first and first.type == "IF_STATEMENT" then
+			apply_if(first, indentation, output)
+		else
+			write("{\n", output)
+			apply_statements(stmt.else_statements, indentation, output)
+			indent(indentation, output)
+			write("}\n", output)
+		end
+	else
+		indent(indentation, output)
+		write("}\n", output)
+	end
+end
+
+local function apply_statement(stmt, indentation, output)
+	local t = stmt.type
+
+	if t == "VARIABLE_STATEMENT" then
+		write(stmt.name, output)
+		if stmt.variable_type then
+			write(": " .. stmt.variable_type, output)
+		end
+		write(" = ", output)
+		apply_expr(stmt.assignment, output)
+		write("\n", output)
+	elseif t == "CALL_STATEMENT" then
+		write(stmt.name .. "(", output)
+		for i, arg in ipairs(stmt.arguments or {}) do
+			if i > 1 then
+				write(", ", output)
+			end
+			apply_expr(arg, output)
+		end
+		write(")\n", output)
+	elseif t == "IF_STATEMENT" then
+		apply_if(stmt, indentation, output)
+	elseif t == "RETURN_STATEMENT" then
+		write("return", output)
+		if stmt.expr then
+			write(" ", output)
+			apply_expr(stmt.expr, output)
+		end
+		write("\n", output)
+	elseif t == "WHILE_STATEMENT" then
+		write("while ", output)
+		apply_expr(stmt.condition, output)
+		write(" {\n", output)
+		apply_statements(stmt.statements, indentation, output)
+		indent(indentation, output)
+		write("}\n", output)
+	elseif t == "BREAK_STATEMENT" then
+		write("break\n", output)
+	elseif t == "CONTINUE_STATEMENT" then
+		write("continue\n", output)
+	elseif t == "COMMENT_STATEMENT" then
+		write("# " .. stmt.comment .. "\n", output)
+	end
+end
+
+apply_statements = function(statements, indentation, output)
+	indentation[1] = indentation[1] + 1
+	for _, s in ipairs(statements or {}) do
+		if s.type == "EMPTY_LINE_STATEMENT" then
+			write("\n", output)
+		else
+			indent(indentation, output)
+			apply_statement(s, indentation, output)
 		end
 	end
+	indentation[1] = indentation[1] - 1
+end
+
+local function apply_args(args, output)
+	for i, a in ipairs(args or {}) do
+		if i > 1 then
+			write(", ", output)
+		end
+		write(a.name .. ": " .. a.type, output)
+	end
+end
+
+local function ast_to_grug(ast)
+	local output, indentation = {}, { 0 }
 
 	for _, stmt in ipairs(ast) do
 		local t = stmt.type
 
 		if t == "GLOBAL_VARIABLE" then
-			write(stmt.name .. ": " .. stmt.variable_type .. " = ")
-			apply_expr(stmt.assignment)
-			write("\n")
+			write(stmt.name .. ": " .. stmt.variable_type .. " = ", output)
+			apply_expr(stmt.assignment, output)
+			write("\n", output)
 		elseif t == "GLOBAL_ON_FN" or t == "GLOBAL_HELPER_FN" then
-			write(stmt.name .. "(")
-			apply_args(stmt.arguments)
-			write(")")
+			write(stmt.name .. "(", output)
+			apply_args(stmt.arguments, output)
+			write(")", output)
 
 			if t == "GLOBAL_HELPER_FN" and stmt.return_type then
-				write(" " .. stmt.return_type)
+				write(" " .. stmt.return_type, output)
 			end
 
-			write(" {\n")
-			apply_statements(stmt.statements)
-			write("}\n")
+			write(" {\n", output)
+			apply_statements(stmt.statements, indentation, output)
+			write("}\n", output)
 		elseif t == "GLOBAL_EMPTY_LINE" then
-			write("\n")
+			write("\n", output)
 		elseif t == "GLOBAL_COMMENT" then
-			write("# " .. stmt.comment .. "\n")
+			write("# " .. stmt.comment .. "\n", output)
 		end
 	end
 

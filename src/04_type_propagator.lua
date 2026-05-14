@@ -133,6 +133,15 @@ local function are_incompatible_types(first_type, first_type_name, second_type, 
 	return true
 end
 
+local function check_chars(s, label, str)
+	for i = 1, #s do
+		local c = string.sub(s, i, i)
+		if not (string.match(c, "%l") or string.match(c, "%d") or c == "_" or c == "-") then
+			error("Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'")
+		end
+	end
+end
+
 function TypePropagator:validate_entity_string(str)
 	if not str or str == "" then
 		error("Entities can't be empty strings")
@@ -171,17 +180,8 @@ function TypePropagator:validate_entity_string(str)
 		end
 	end
 
-	local function check_chars(s, label)
-		for i = 1, #s do
-			local c = string.sub(s, i, i)
-			if not (string.match(c, "%l") or string.match(c, "%d") or c == "_" or c == "-") then
-				error("Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'")
-			end
-		end
-	end
-
-	check_chars(mod, "mod")
-	check_chars(entity_name, "entity")
+	check_chars(mod, "mod", str)
+	check_chars(entity_name, "entity", str)
 end
 
 local function validate_resource_string(str, resource_extension)
@@ -586,6 +586,15 @@ function TypePropagator:fill_global_variables()
 	end
 end
 
+local function get_idx(parser_names, name)
+	for i, v in ipairs(parser_names) do
+		if v == name then
+			return i
+		end
+	end
+	return -1
+end
+
 function TypePropagator:fill_on_fns()
 	local expected_map = {}
 	for _, fn in ipairs(self.entity_on_functions) do
@@ -611,20 +620,11 @@ function TypePropagator:fill_on_fns()
 		end
 	end
 
-	local function get_idx(name)
-		for i, v in ipairs(parser_names) do
-			if v == name then
-				return i
-			end
-		end
-		return -1
-	end
-
 	local last_idx = 0
 	for _, expected_fn in ipairs(self.entity_on_functions) do
 		local name = expected_fn.name
 		if self.on_fns[name] then
-			local curr_idx = get_idx(name)
+			local curr_idx = get_idx(parser_names, name)
 			if last_idx > curr_idx then
 				error(
 					"The function '"

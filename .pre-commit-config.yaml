@@ -25,3 +25,15 @@ repos:
         types: [lua]
         pass_filenames: false
         args: [., --exclude-files, src, examples]
+
+      - id: forbid-nested-functions
+        name: Forbid nested function definitions in grug.lua
+        language: system
+        entry: >
+          sh -c '
+            if grep -nE "	(local function|function)" grug.lua; then
+              echo "Error: grug.lua contains nested function definitions."
+              exit 1
+            fi
+          '
+        pass_filenames: false

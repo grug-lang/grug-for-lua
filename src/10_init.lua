@@ -121,6 +121,53 @@ function grug:update()
 	end
 end
 
+function grug:_update_dir(current_path, grug_dir, seen_files, seen_dirs)
+	-- Mark this directory as visited
+	seen_dirs[current_path] = true
+
+	-- Mark phase: scan disk
+	local entries = self.fs.list_dir(current_path)
+	if entries then
+		for _, entry_name in ipairs(entries) do
+			local entry_path = current_path .. "/" .. entry_name
+
+			if self.fs.is_dir(entry_path) then
+				local sub = grug_dir.dirs[entry_name]
+				if sub == nil then
+					sub = GrugDir.new(entry_name)
+					grug_dir.dirs[entry_name] = sub
+				end
+				self:_update_dir(entry_path, sub, seen_files, seen_dirs)
+			elseif entry_name:sub(-5) == ".grug" then
+				local rel_path = entry_path:sub(#self.mods_dir_path + 2)
+				seen_files[rel_path] = true
+
+				local text = self.fs.read(entry_path)
+				local existing = grug_dir.files[entry_name]
+
+				if not existing or existing.version ~= self.fs.get_file_version(entry_path, text) then
+					grug_dir.files[entry_name] = self:_recompile_with_hot_reload(rel_path, existing)
+				end
+			end
+		end
+	end
+
+	-- Sweep files
+	for name, file in pairs(grug_dir.files) do
+		if not seen_files[file.relative_path] then
+			grug_dir.files[name] = nil
+		end
+	end
+
+	-- Sweep subdirectories
+	for name, _ in pairs(grug_dir.dirs) do
+		local sub_path = current_path .. "/" .. name
+		if not seen_dirs[sub_path] then
+			grug_dir.dirs[name] = nil
+		end
+	end
+end
+
 -- This (re)compiles grug files using mark-and-sweep.
 function grug:_update()
 	if self._mods == nil then
@@ -140,53 +187,6 @@ function grug:_update()
 	local seen_files = {}
 	local seen_dirs = {}
 
-	local function update_dir(current_path, grug_dir)
-		-- Mark this directory as visited
-		seen_dirs[current_path] = true
-
-		-- Mark phase: scan disk
-		local entries = self.fs.list_dir(current_path)
-		if entries then
-			for _, entry_name in ipairs(entries) do
-				local entry_path = current_path .. "/" .. entry_name
-
-				if self.fs.is_dir(entry_path) then
-					local sub = grug_dir.dirs[entry_name]
-					if sub == nil then
-						sub = GrugDir.new(entry_name)
-						grug_dir.dirs[entry_name] = sub
-					end
-					update_dir(entry_path, sub)
-				elseif entry_name:sub(-5) == ".grug" then
-					local rel_path = entry_path:sub(#self.mods_dir_path + 2)
-					seen_files[rel_path] = true
-
-					local text = self.fs.read(entry_path)
-					local existing = grug_dir.files[entry_name]
-
-					if not existing or existing.version ~= self.fs.get_file_version(entry_path, text) then
-						grug_dir.files[entry_name] = self:_recompile_with_hot_reload(rel_path, existing)
-					end
-				end
-			end
-		end
-
-		-- Sweep files
-		for name, file in pairs(grug_dir.files) do
-			if not seen_files[file.relative_path] then
-				grug_dir.files[name] = nil
-			end
-		end
-
-		-- Sweep subdirectories
-		for name, _ in pairs(grug_dir.dirs) do
-			local sub_path = current_path .. "/" .. name
-			if not seen_dirs[sub_path] then
-				grug_dir.dirs[name] = nil
-			end
-		end
-	end
-
 	local root = self._mods
 
 	-- Process each top-level mod directory
@@ -200,7 +200,7 @@ function grug:_update()
 					sub = GrugDir.new(mod_dir_name)
 					root.dirs[mod_dir_name] = sub
 				end
-				update_dir(mod_dir_path, sub)
+				self:_update_dir(mod_dir_path, sub, seen_files, seen_dirs)
 			end
 		end
 	end

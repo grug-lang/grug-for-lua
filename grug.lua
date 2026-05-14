@@ -1467,6 +1467,15 @@ local function are_incompatible_types(first_type, first_type_name, second_type, 
 	return true
 end
 
+local function check_chars(s, label, str)
+	for i = 1, #s do
+		local c = string.sub(s, i, i)
+		if not (string.match(c, "%l") or string.match(c, "%d") or c == "_" or c == "-") then
+			error("Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'")
+		end
+	end
+end
+
 function TypePropagator:validate_entity_string(str)
 	if not str or str == "" then
 		error("Entities can't be empty strings")
@@ -1505,17 +1514,8 @@ function TypePropagator:validate_entity_string(str)
 		end
 	end
 
-	local function check_chars(s, label)
-		for i = 1, #s do
-			local c = string.sub(s, i, i)
-			if not (string.match(c, "%l") or string.match(c, "%d") or c == "_" or c == "-") then
-				error("Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'")
-			end
-		end
-	end
-
-	check_chars(mod, "mod")
-	check_chars(entity_name, "entity")
+	check_chars(mod, "mod", str)
+	check_chars(entity_name, "entity", str)
 end
 
 local function validate_resource_string(str, resource_extension)
@@ -1920,6 +1920,15 @@ function TypePropagator:fill_global_variables()
 	end
 end
 
+local function get_idx(parser_names, name)
+	for i, v in ipairs(parser_names) do
+		if v == name then
+			return i
+		end
+	end
+	return -1
+end
+
 function TypePropagator:fill_on_fns()
 	local expected_map = {}
 	for _, fn in ipairs(self.entity_on_functions) do
@@ -1945,20 +1954,11 @@ function TypePropagator:fill_on_fns()
 		end
 	end
 
-	local function get_idx(name)
-		for i, v in ipairs(parser_names) do
-			if v == name then
-				return i
-			end
-		end
-		return -1
-	end
-
 	local last_idx = 0
 	for _, expected_fn in ipairs(self.entity_on_functions) do
 		local name = expected_fn.name
 		if self.on_fns[name] then
-			local curr_idx = get_idx(name)
+			local curr_idx = get_idx(parser_names, name)
 			if last_idx > curr_idx then
 				error(
 					"The function '"
@@ -2207,196 +2207,192 @@ local function ast_to_json_text(ast)
 end
 
 -- ======================
--- GRUG Output
+-- grug Output
 -- ======================
-local function ast_to_grug(ast)
-	local output, indentation = {}, 0
+local function write(text, output)
+	table.insert(output, text)
+end
 
-	local function write(text)
-		table.insert(output, text)
-	end
+local function indent(indentation, output)
+	write(string.rep("    ", indentation[1]), output)
+end
 
-	local function indent()
-		write(string.rep("    ", indentation))
-	end
+local function apply_expr(expr, output)
+	local t = expr.type
 
-	-- ===== Expressions =====
-	local function apply_expr(expr)
-		local t = expr.type
-
-		if t == "TRUE_EXPR" then
-			write("true")
-		elseif t == "FALSE_EXPR" then
-			write("false")
-		elseif t == "STRING_EXPR" then
-			write('"' .. expr.str .. '"')
-		elseif t == "ENTITY_EXPR" then
-			write('e"' .. expr.str .. '"')
-		elseif t == "RESOURCE_EXPR" then
-			write('r"' .. expr.str .. '"')
-		elseif t == "IDENTIFIER_EXPR" then
-			write(expr.str)
-		elseif t == "NUMBER_EXPR" then
-			write(tostring(expr.value))
-		elseif t == "UNARY_EXPR" then
-			write(expr.operator == "MINUS_TOKEN" and "-" or "not ")
-			apply_expr(expr.expr)
-		elseif t == "BINARY_EXPR" then
-			local op_map = {
-				PLUS_TOKEN = "+",
-				MINUS_TOKEN = "-",
-				MULTIPLICATION_TOKEN = "*",
-				DIVISION_TOKEN = "/",
-				EQUALS_TOKEN = "==",
-				NOT_EQUALS_TOKEN = "!=",
-				GREATER_OR_EQUAL_TOKEN = ">=",
-				GREATER_TOKEN = ">",
-				LESS_OR_EQUAL_TOKEN = "<=",
-				LESS_TOKEN = "<",
-			}
-			apply_expr(expr.left_expr)
-			write(" " .. op_map[expr.operator] .. " ")
-			apply_expr(expr.right_expr)
-		elseif t == "LOGICAL_EXPR" then
-			apply_expr(expr.left_expr)
-			write(expr.operator == "AND_TOKEN" and " and " or " or ")
-			apply_expr(expr.right_expr)
-		elseif t == "CALL_EXPR" then
-			write(expr.name .. "(")
-			for i, arg in ipairs(expr.arguments or {}) do
-				if i > 1 then
-					write(", ")
-				end
-				apply_expr(arg)
-			end
-			write(")")
-		elseif t == "PARENTHESIZED_EXPR" then
-			write("(")
-			apply_expr(expr.expr)
-			write(")")
-		end
-	end
-
-	-- ===== Statements =====
-	local apply_statement -- Forward declaration
-
-	local function apply_statements(statements)
-		indentation = indentation + 1
-		for _, s in ipairs(statements or {}) do
-			if s.type == "EMPTY_LINE_STATEMENT" then
-				write("\n")
-			else
-				indent()
-				apply_statement(s)
-			end
-		end
-		indentation = indentation - 1
-	end
-
-	local function apply_if(stmt)
-		write("if ")
-		apply_expr(stmt.condition)
-		write(" {\n")
-
-		apply_statements(stmt.if_statements)
-
-		if stmt.else_statements and #stmt.else_statements > 0 then
-			indent()
-			write("} else ")
-
-			local first = stmt.else_statements[1]
-			if first and first.type == "IF_STATEMENT" then
-				apply_if(first)
-			else
-				write("{\n")
-				apply_statements(stmt.else_statements)
-				indent()
-				write("}\n")
-			end
-		else
-			indent()
-			write("}\n")
-		end
-	end
-
-	function apply_statement(stmt)
-		local t = stmt.type
-
-		if t == "VARIABLE_STATEMENT" then
-			write(stmt.name)
-			if stmt.variable_type then
-				write(": " .. stmt.variable_type)
-			end
-			write(" = ")
-			apply_expr(stmt.assignment)
-			write("\n")
-		elseif t == "CALL_STATEMENT" then
-			write(stmt.name .. "(")
-			for i, arg in ipairs(stmt.arguments or {}) do
-				if i > 1 then
-					write(", ")
-				end
-				apply_expr(arg)
-			end
-			write(")\n")
-		elseif t == "IF_STATEMENT" then
-			apply_if(stmt)
-		elseif t == "RETURN_STATEMENT" then
-			write("return")
-			if stmt.expr then
-				write(" ")
-				apply_expr(stmt.expr)
-			end
-			write("\n")
-		elseif t == "WHILE_STATEMENT" then
-			write("while ")
-			apply_expr(stmt.condition)
-			write(" {\n")
-			apply_statements(stmt.statements)
-			indent()
-			write("}\n")
-		elseif t == "BREAK_STATEMENT" then
-			write("break\n")
-		elseif t == "CONTINUE_STATEMENT" then
-			write("continue\n")
-		elseif t == "COMMENT_STATEMENT" then
-			write("# " .. stmt.comment .. "\n")
-		end
-	end
-
-	-- ===== Globals =====
-	local function apply_args(args)
-		for i, a in ipairs(args or {}) do
+	if t == "TRUE_EXPR" then
+		write("true", output)
+	elseif t == "FALSE_EXPR" then
+		write("false", output)
+	elseif t == "STRING_EXPR" then
+		write('"' .. expr.str .. '"', output)
+	elseif t == "ENTITY_EXPR" then
+		write('e"' .. expr.str .. '"', output)
+	elseif t == "RESOURCE_EXPR" then
+		write('r"' .. expr.str .. '"', output)
+	elseif t == "IDENTIFIER_EXPR" then
+		write(expr.str, output)
+	elseif t == "NUMBER_EXPR" then
+		write(tostring(expr.value), output)
+	elseif t == "UNARY_EXPR" then
+		write(expr.operator == "MINUS_TOKEN" and "-" or "not ", output)
+		apply_expr(expr.expr, output)
+	elseif t == "BINARY_EXPR" then
+		local op_map = {
+			PLUS_TOKEN = "+",
+			MINUS_TOKEN = "-",
+			MULTIPLICATION_TOKEN = "*",
+			DIVISION_TOKEN = "/",
+			EQUALS_TOKEN = "==",
+			NOT_EQUALS_TOKEN = "!=",
+			GREATER_OR_EQUAL_TOKEN = ">=",
+			GREATER_TOKEN = ">",
+			LESS_OR_EQUAL_TOKEN = "<=",
+			LESS_TOKEN = "<",
+		}
+		apply_expr(expr.left_expr, output)
+		write(" " .. op_map[expr.operator] .. " ", output)
+		apply_expr(expr.right_expr, output)
+	elseif t == "LOGICAL_EXPR" then
+		apply_expr(expr.left_expr, output)
+		write(expr.operator == "AND_TOKEN" and " and " or " or ", output)
+		apply_expr(expr.right_expr, output)
+	elseif t == "CALL_EXPR" then
+		write(expr.name .. "(", output)
+		for i, arg in ipairs(expr.arguments or {}) do
 			if i > 1 then
-				write(", ")
+				write(", ", output)
 			end
-			write(a.name .. ": " .. a.type)
+			apply_expr(arg, output)
+		end
+		write(")", output)
+	elseif t == "PARENTHESIZED_EXPR" then
+		write("(", output)
+		apply_expr(expr.expr, output)
+		write(")", output)
+	end
+end
+
+local apply_statements -- Forward declaration
+local function apply_if(stmt, indentation, output)
+	write("if ", output)
+	apply_expr(stmt.condition, output)
+	write(" {\n", output)
+
+	apply_statements(stmt.if_statements, indentation, output)
+
+	if stmt.else_statements and #stmt.else_statements > 0 then
+		indent(indentation, output)
+		write("} else ", output)
+
+		local first = stmt.else_statements[1]
+		if first and first.type == "IF_STATEMENT" then
+			apply_if(first, indentation, output)
+		else
+			write("{\n", output)
+			apply_statements(stmt.else_statements, indentation, output)
+			indent(indentation, output)
+			write("}\n", output)
+		end
+	else
+		indent(indentation, output)
+		write("}\n", output)
+	end
+end
+
+local function apply_statement(stmt, indentation, output)
+	local t = stmt.type
+
+	if t == "VARIABLE_STATEMENT" then
+		write(stmt.name, output)
+		if stmt.variable_type then
+			write(": " .. stmt.variable_type, output)
+		end
+		write(" = ", output)
+		apply_expr(stmt.assignment, output)
+		write("\n", output)
+	elseif t == "CALL_STATEMENT" then
+		write(stmt.name .. "(", output)
+		for i, arg in ipairs(stmt.arguments or {}) do
+			if i > 1 then
+				write(", ", output)
+			end
+			apply_expr(arg, output)
+		end
+		write(")\n", output)
+	elseif t == "IF_STATEMENT" then
+		apply_if(stmt, indentation, output)
+	elseif t == "RETURN_STATEMENT" then
+		write("return", output)
+		if stmt.expr then
+			write(" ", output)
+			apply_expr(stmt.expr, output)
+		end
+		write("\n", output)
+	elseif t == "WHILE_STATEMENT" then
+		write("while ", output)
+		apply_expr(stmt.condition, output)
+		write(" {\n", output)
+		apply_statements(stmt.statements, indentation, output)
+		indent(indentation, output)
+		write("}\n", output)
+	elseif t == "BREAK_STATEMENT" then
+		write("break\n", output)
+	elseif t == "CONTINUE_STATEMENT" then
+		write("continue\n", output)
+	elseif t == "COMMENT_STATEMENT" then
+		write("# " .. stmt.comment .. "\n", output)
+	end
+end
+
+apply_statements = function(statements, indentation, output)
+	indentation[1] = indentation[1] + 1
+	for _, s in ipairs(statements or {}) do
+		if s.type == "EMPTY_LINE_STATEMENT" then
+			write("\n", output)
+		else
+			indent(indentation, output)
+			apply_statement(s, indentation, output)
 		end
 	end
+	indentation[1] = indentation[1] - 1
+end
+
+local function apply_args(args, output)
+	for i, a in ipairs(args or {}) do
+		if i > 1 then
+			write(", ", output)
+		end
+		write(a.name .. ": " .. a.type, output)
+	end
+end
+
+local function ast_to_grug(ast)
+	local output, indentation = {}, { 0 }
 
 	for _, stmt in ipairs(ast) do
 		local t = stmt.type
 
 		if t == "GLOBAL_VARIABLE" then
-			write(stmt.name .. ": " .. stmt.variable_type .. " = ")
-			apply_expr(stmt.assignment)
-			write("\n")
+			write(stmt.name .. ": " .. stmt.variable_type .. " = ", output)
+			apply_expr(stmt.assignment, output)
+			write("\n", output)
 		elseif t == "GLOBAL_ON_FN" or t == "GLOBAL_HELPER_FN" then
-			write(stmt.name .. "(")
-			apply_args(stmt.arguments)
-			write(")")
+			write(stmt.name .. "(", output)
+			apply_args(stmt.arguments, output)
+			write(")", output)
 
 			if t == "GLOBAL_HELPER_FN" and stmt.return_type then
-				write(" " .. stmt.return_type)
+				write(" " .. stmt.return_type, output)
 			end
 
-			write(" {\n")
-			apply_statements(stmt.statements)
-			write("}\n")
+			write(" {\n", output)
+			apply_statements(stmt.statements, indentation, output)
+			write("}\n", output)
 		elseif t == "GLOBAL_EMPTY_LINE" then
-			write("\n")
+			write("\n", output)
 		elseif t == "GLOBAL_COMMENT" then
-			write("# " .. stmt.comment .. "\n")
+			write("# " .. stmt.comment .. "\n", output)
 		end
 	end
 
@@ -2610,42 +2606,42 @@ end
 -- Statement emitter
 -- ---------------------------------------------------------------------------
 
-function Transpiler:emit_stmts(stmts, indent)
+function Transpiler:emit_stmts(stmts, indentation)
 	for _, stmt in ipairs(stmts) do
-		self:emit_stmt(stmt, indent)
+		self:emit_stmt(stmt, indentation)
 	end
 end
 
-function Transpiler:emit_stmt(stmt, indent)
+function Transpiler:emit_stmt(stmt, indentation)
 	local t = stmt.stmt_type
 
 	if t == "VariableStatement" then
 		local rhs = self:emit_expr(stmt.expr)
 		if self.globals[stmt.name] then
 			-- Assignment to a file-global variable (stored in `e`).
-			self:w(indent .. "e." .. stmt.name .. " = " .. rhs .. "\n")
+			self:w(indentation .. "e." .. stmt.name .. " = " .. rhs .. "\n")
 		elseif stmt.type ~= nil then
 			-- First declaration of a local variable (has an explicit type annotation).
-			self:w(indent .. "local " .. stmt.name .. " = " .. rhs .. "\n")
+			self:w(indentation .. "local " .. stmt.name .. " = " .. rhs .. "\n")
 		else
 			-- Re-assignment to an already-declared local.
-			self:w(indent .. stmt.name .. " = " .. rhs .. "\n")
+			self:w(indentation .. stmt.name .. " = " .. rhs .. "\n")
 		end
 	elseif t == "CallStatement" then
-		self:w(indent .. self:emit_call_expr(stmt.expr) .. "\n")
+		self:w(indentation .. self:emit_call_expr(stmt.expr) .. "\n")
 	elseif t == "IfStatement" then
-		self:w(indent .. "if " .. self:emit_expr(stmt.condition) .. " then\n")
-		self:emit_stmts(stmt.if_body, indent .. "    ")
+		self:w(indentation .. "if " .. self:emit_expr(stmt.condition) .. " then\n")
+		self:emit_stmts(stmt.if_body, indentation .. "    ")
 		if stmt.else_body and #stmt.else_body > 0 then
-			self:w(indent .. "else\n")
-			self:emit_stmts(stmt.else_body, indent .. "    ")
+			self:w(indentation .. "else\n")
+			self:emit_stmts(stmt.else_body, indentation .. "    ")
 		end
-		self:w(indent .. "end\n")
+		self:w(indentation .. "end\n")
 	elseif t == "ReturnStatement" then
 		if stmt.value then
-			self:w(indent .. "do return " .. self:emit_expr(stmt.value) .. " end\n")
+			self:w(indentation .. "do return " .. self:emit_expr(stmt.value) .. " end\n")
 		else
-			self:w(indent .. "do return end\n")
+			self:w(indentation .. "do return end\n")
 		end
 	elseif t == "WhileStatement" then
 		-- Assign a unique ID to this loop so `continue` can find its label.
@@ -2653,33 +2649,33 @@ function Transpiler:emit_stmt(stmt, indent)
 		local loop_id = self.loop_id_counter
 		table.insert(self.loop_stack, loop_id)
 
-		self:w(indent .. "while " .. self:emit_expr(stmt.condition) .. " do\n")
-		self:emit_stmts(stmt.body_statements, indent .. "    ")
+		self:w(indentation .. "while " .. self:emit_expr(stmt.condition) .. " do\n")
+		self:emit_stmts(stmt.body_statements, indentation .. "    ")
 		-- Place the continue target label at the very end of the loop body so
 		-- that `goto continue_N` (continue) skips the rest of the body but
 		-- still reaches the time-limit check below.
-		self:w(indent .. "    ::continue_" .. loop_id .. "::\n")
+		self:w(indentation .. "    ::continue_" .. loop_id .. "::\n")
 		-- In safe mode, check the time limit after every iteration (including
 		-- after a `continue`). Throw a table error so the outer pcall in
 		-- call_on_function can recognise and route it to runtime_error_handler.
 		if self.safe_mode then
-			self:w(indent .. "    if _clock() - _start_time > _time_limit_sec then\n")
+			self:w(indentation .. "    if _clock() - _start_time > _time_limit_sec then\n")
 			self:w(
-				indent
+				indentation
 					.. '        error({ type = "TIME_LIMIT_EXCEEDED",'
 					.. ' reason = string.format("Took longer than %g milliseconds to run", _time_limit_sec * 1000) }, 0)\n'
 			)
-			self:w(indent .. "    end\n")
+			self:w(indentation .. "    end\n")
 		end
-		self:w(indent .. "end\n")
+		self:w(indentation .. "end\n")
 
 		table.remove(self.loop_stack)
 	elseif t == "BreakStatement" then
-		self:w(indent .. "do break end\n")
+		self:w(indentation .. "do break end\n")
 	elseif t == "ContinueStatement" then
 		-- Jump to the innermost enclosing loop's continue label.
 		local current_loop_id = self.loop_stack[#self.loop_stack]
-		self:w(indent .. "goto continue_" .. current_loop_id .. "\n")
+		self:w(indentation .. "goto continue_" .. current_loop_id .. "\n")
 
 		-- EmptyLineStatement and CommentStatement are intentionally omitted.
 	end
@@ -3220,6 +3216,53 @@ function grug:update()
 	end
 end
 
+function grug:_update_dir(current_path, grug_dir, seen_files, seen_dirs)
+	-- Mark this directory as visited
+	seen_dirs[current_path] = true
+
+	-- Mark phase: scan disk
+	local entries = self.fs.list_dir(current_path)
+	if entries then
+		for _, entry_name in ipairs(entries) do
+			local entry_path = current_path .. "/" .. entry_name
+
+			if self.fs.is_dir(entry_path) then
+				local sub = grug_dir.dirs[entry_name]
+				if sub == nil then
+					sub = GrugDir.new(entry_name)
+					grug_dir.dirs[entry_name] = sub
+				end
+				self:_update_dir(entry_path, sub, seen_files, seen_dirs)
+			elseif entry_name:sub(-5) == ".grug" then
+				local rel_path = entry_path:sub(#self.mods_dir_path + 2)
+				seen_files[rel_path] = true
+
+				local text = self.fs.read(entry_path)
+				local existing = grug_dir.files[entry_name]
+
+				if not existing or existing.version ~= self.fs.get_file_version(entry_path, text) then
+					grug_dir.files[entry_name] = self:_recompile_with_hot_reload(rel_path, existing)
+				end
+			end
+		end
+	end
+
+	-- Sweep files
+	for name, file in pairs(grug_dir.files) do
+		if not seen_files[file.relative_path] then
+			grug_dir.files[name] = nil
+		end
+	end
+
+	-- Sweep subdirectories
+	for name, _ in pairs(grug_dir.dirs) do
+		local sub_path = current_path .. "/" .. name
+		if not seen_dirs[sub_path] then
+			grug_dir.dirs[name] = nil
+		end
+	end
+end
+
 -- This (re)compiles grug files using mark-and-sweep.
 function grug:_update()
 	if self._mods == nil then
@@ -3239,53 +3282,6 @@ function grug:_update()
 	local seen_files = {}
 	local seen_dirs = {}
 
-	local function update_dir(current_path, grug_dir)
-		-- Mark this directory as visited
-		seen_dirs[current_path] = true
-
-		-- Mark phase: scan disk
-		local entries = self.fs.list_dir(current_path)
-		if entries then
-			for _, entry_name in ipairs(entries) do
-				local entry_path = current_path .. "/" .. entry_name
-
-				if self.fs.is_dir(entry_path) then
-					local sub = grug_dir.dirs[entry_name]
-					if sub == nil then
-						sub = GrugDir.new(entry_name)
-						grug_dir.dirs[entry_name] = sub
-					end
-					update_dir(entry_path, sub)
-				elseif entry_name:sub(-5) == ".grug" then
-					local rel_path = entry_path:sub(#self.mods_dir_path + 2)
-					seen_files[rel_path] = true
-
-					local text = self.fs.read(entry_path)
-					local existing = grug_dir.files[entry_name]
-
-					if not existing or existing.version ~= self.fs.get_file_version(entry_path, text) then
-						grug_dir.files[entry_name] = self:_recompile_with_hot_reload(rel_path, existing)
-					end
-				end
-			end
-		end
-
-		-- Sweep files
-		for name, file in pairs(grug_dir.files) do
-			if not seen_files[file.relative_path] then
-				grug_dir.files[name] = nil
-			end
-		end
-
-		-- Sweep subdirectories
-		for name, _ in pairs(grug_dir.dirs) do
-			local sub_path = current_path .. "/" .. name
-			if not seen_dirs[sub_path] then
-				grug_dir.dirs[name] = nil
-			end
-		end
-	end
-
 	local root = self._mods
 
 	-- Process each top-level mod directory
@@ -3299,7 +3295,7 @@ function grug:_update()
 					sub = GrugDir.new(mod_dir_name)
 					root.dirs[mod_dir_name] = sub
 				end
-				update_dir(mod_dir_path, sub)
+				self:_update_dir(mod_dir_path, sub, seen_files, seen_dirs)
 			end
 		end
 	end

@@ -146,42 +146,42 @@ end
 -- Statement emitter
 -- ---------------------------------------------------------------------------
 
-function Transpiler:emit_stmts(stmts, indent)
+function Transpiler:emit_stmts(stmts, indentation)
 	for _, stmt in ipairs(stmts) do
-		self:emit_stmt(stmt, indent)
+		self:emit_stmt(stmt, indentation)
 	end
 end
 
-function Transpiler:emit_stmt(stmt, indent)
+function Transpiler:emit_stmt(stmt, indentation)
 	local t = stmt.stmt_type
 
 	if t == "VariableStatement" then
 		local rhs = self:emit_expr(stmt.expr)
 		if self.globals[stmt.name] then
 			-- Assignment to a file-global variable (stored in `e`).
-			self:w(indent .. "e." .. stmt.name .. " = " .. rhs .. "\n")
+			self:w(indentation .. "e." .. stmt.name .. " = " .. rhs .. "\n")
 		elseif stmt.type ~= nil then
 			-- First declaration of a local variable (has an explicit type annotation).
-			self:w(indent .. "local " .. stmt.name .. " = " .. rhs .. "\n")
+			self:w(indentation .. "local " .. stmt.name .. " = " .. rhs .. "\n")
 		else
 			-- Re-assignment to an already-declared local.
-			self:w(indent .. stmt.name .. " = " .. rhs .. "\n")
+			self:w(indentation .. stmt.name .. " = " .. rhs .. "\n")
 		end
 	elseif t == "CallStatement" then
-		self:w(indent .. self:emit_call_expr(stmt.expr) .. "\n")
+		self:w(indentation .. self:emit_call_expr(stmt.expr) .. "\n")
 	elseif t == "IfStatement" then
-		self:w(indent .. "if " .. self:emit_expr(stmt.condition) .. " then\n")
-		self:emit_stmts(stmt.if_body, indent .. "    ")
+		self:w(indentation .. "if " .. self:emit_expr(stmt.condition) .. " then\n")
+		self:emit_stmts(stmt.if_body, indentation .. "    ")
 		if stmt.else_body and #stmt.else_body > 0 then
-			self:w(indent .. "else\n")
-			self:emit_stmts(stmt.else_body, indent .. "    ")
+			self:w(indentation .. "else\n")
+			self:emit_stmts(stmt.else_body, indentation .. "    ")
 		end
-		self:w(indent .. "end\n")
+		self:w(indentation .. "end\n")
 	elseif t == "ReturnStatement" then
 		if stmt.value then
-			self:w(indent .. "do return " .. self:emit_expr(stmt.value) .. " end\n")
+			self:w(indentation .. "do return " .. self:emit_expr(stmt.value) .. " end\n")
 		else
-			self:w(indent .. "do return end\n")
+			self:w(indentation .. "do return end\n")
 		end
 	elseif t == "WhileStatement" then
 		-- Assign a unique ID to this loop so `continue` can find its label.
@@ -189,33 +189,33 @@ function Transpiler:emit_stmt(stmt, indent)
 		local loop_id = self.loop_id_counter
 		table.insert(self.loop_stack, loop_id)
 
-		self:w(indent .. "while " .. self:emit_expr(stmt.condition) .. " do\n")
-		self:emit_stmts(stmt.body_statements, indent .. "    ")
+		self:w(indentation .. "while " .. self:emit_expr(stmt.condition) .. " do\n")
+		self:emit_stmts(stmt.body_statements, indentation .. "    ")
 		-- Place the continue target label at the very end of the loop body so
 		-- that `goto continue_N` (continue) skips the rest of the body but
 		-- still reaches the time-limit check below.
-		self:w(indent .. "    ::continue_" .. loop_id .. "::\n")
+		self:w(indentation .. "    ::continue_" .. loop_id .. "::\n")
 		-- In safe mode, check the time limit after every iteration (including
 		-- after a `continue`). Throw a table error so the outer pcall in
 		-- call_on_function can recognise and route it to runtime_error_handler.
 		if self.safe_mode then
-			self:w(indent .. "    if _clock() - _start_time > _time_limit_sec then\n")
+			self:w(indentation .. "    if _clock() - _start_time > _time_limit_sec then\n")
 			self:w(
-				indent
+				indentation
 					.. '        error({ type = "TIME_LIMIT_EXCEEDED",'
 					.. ' reason = string.format("Took longer than %g milliseconds to run", _time_limit_sec * 1000) }, 0)\n'
 			)
-			self:w(indent .. "    end\n")
+			self:w(indentation .. "    end\n")
 		end
-		self:w(indent .. "end\n")
+		self:w(indentation .. "end\n")
 
 		table.remove(self.loop_stack)
 	elseif t == "BreakStatement" then
-		self:w(indent .. "do break end\n")
+		self:w(indentation .. "do break end\n")
 	elseif t == "ContinueStatement" then
 		-- Jump to the innermost enclosing loop's continue label.
 		local current_loop_id = self.loop_stack[#self.loop_stack]
-		self:w(indent .. "goto continue_" .. current_loop_id .. "\n")
+		self:w(indentation .. "goto continue_" .. current_loop_id .. "\n")
 
 		-- EmptyLineStatement and CommentStatement are intentionally omitted.
 	end
