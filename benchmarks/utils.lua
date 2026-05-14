@@ -7,7 +7,9 @@ local json = require("json")
 -- CLI Arguments
 local path = arg[1] or "results.json"
 local batch_size = tonumber(arg[2]) or 1000
-local measured_seconds = tonumber(arg[3]) or 10
+local warmup_seconds = tonumber(arg[3]) or 1
+local measured_seconds = tonumber(arg[4]) or 1
+local runs = tonumber(arg[5]) or 10
 
 local utils = {}
 
@@ -32,11 +34,11 @@ function utils.benchmark(name, fn, entity)
 
 	utils.log("Warming up...")
 
-	-- 1. Warmup phase: Run for exactly 1.0 second
+	-- 1. Warmup phase
 	-- We use batch_size to avoid calling clock() too frequently
 	local warmup_iterations = 0
 	local warmup_start = clock()
-	while clock() - warmup_start < 1.0 do
+	while clock() - warmup_start < warmup_seconds do
 		for _ = 1, batch_size do
 			fn(entity)
 		end
@@ -50,14 +52,28 @@ function utils.benchmark(name, fn, entity)
 
 	utils.log("Measuring...")
 
-	-- 3. Actual measurement
-	local start = clock()
-	for _ = 1, total_measured_iterations do
-		fn(entity)
-	end
-	local finish = clock()
+	-- 3. Actual measurement (repeat multiple times, keep fastest)
+	local best_elapsed = math.huge
 
-	local elapsed = finish - start
+	for run = 1, runs do
+		utils.log("Run " .. run .. "/" .. runs .. "...")
+
+		local start = clock()
+
+		for _ = 1, total_measured_iterations do
+			fn(entity)
+		end
+
+		local elapsed = clock() - start
+
+		utils.log("Elapsed: " .. elapsed .. " seconds")
+
+		if elapsed < best_elapsed then
+			best_elapsed = elapsed
+		end
+	end
+
+	local elapsed = best_elapsed
 
 	table.insert(specializations, {
 		name = name,
