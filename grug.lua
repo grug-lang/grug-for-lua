@@ -411,40 +411,37 @@ local DOUBLE_SYMBOLS = {
 	["<="] = "LESS_OR_EQUAL_TOKEN",
 }
 
+local function error_at(msg, line_number)
+	error(msg .. " on line " .. line_number)
+end
+
+local function tokenize_string(src, line_number, start_idx)
+	local open_quote_line = line_number
+	local idx = start_idx + 1
+	local start_content = idx
+	while idx <= #src do
+		local c = src:sub(idx, idx)
+		if c == '"' then
+			break
+		elseif c == "\0" then
+			error_at("Unexpected null byte", line_number)
+		elseif c == "\\" and src:sub(idx + 1, idx + 1) == "\n" then
+			error_at("Unexpected line break in string", line_number)
+		elseif c == "\n" then
+			line_number = line_number + 1
+		end
+		idx = idx + 1
+	end
+	if idx > #src then
+		error_at('Unclosed "', open_quote_line)
+	end
+	return src:sub(start_content, idx - 1), idx
+end
+
 local function tokenize(src)
 	local tokens = {}
 	local i = 1
 	local line_number = 1
-
-	local function error_at(msg, override_line)
-		error(msg .. " on line " .. (override_line or line_number))
-	end
-
-	local function tokenize_string(start_idx)
-		local open_quote_line = line_number
-		local idx = start_idx + 1
-		local start_content = idx
-
-		while idx <= #src do
-			local c = src:sub(idx, idx)
-			if c == '"' then
-				break
-			elseif c == "\0" then
-				error_at("Unexpected null byte", line_number)
-			elseif c == "\\" and src:sub(idx + 1, idx + 1) == "\n" then
-				error_at("Unexpected line break in string", line_number)
-			elseif c == "\n" then
-				line_number = line_number + 1
-			end
-			idx = idx + 1
-		end
-
-		if idx > #src then
-			error_at('Unclosed "', open_quote_line)
-		end
-
-		return src:sub(start_content, idx - 1), idx
-	end
 
 	while i <= #src do
 		local c = src:sub(i, i)
@@ -486,7 +483,8 @@ local function tokenize(src)
 							"Encountered %d spaces, while indentation expects multiples of %d spaces,",
 							spaces,
 							SPACES_PER_INDENT
-						)
+						),
+						line_number
 					)
 				end
 
@@ -498,19 +496,19 @@ local function tokenize(src)
 
 		-- 4. Standard Strings
 		elseif c == '"' then
-			local str_val, new_i = tokenize_string(i)
+			local str_val, new_i = tokenize_string(src, line_number, i)
 			table.insert(tokens, { type = "STRING_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 5. Entity Strings (e"...")
 		elseif c == "e" and src:sub(i + 1, i + 1) == '"' then
-			local str_val, new_i = tokenize_string(i + 1)
+			local str_val, new_i = tokenize_string(src, line_number, i + 1)
 			table.insert(tokens, { type = "ENTITY_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 6. Resource Strings (r"...")
 		elseif c == "r" and src:sub(i + 1, i + 1) == '"' then
-			local str_val, new_i = tokenize_string(i + 1)
+			local str_val, new_i = tokenize_string(src, line_number, i + 1)
 			table.insert(tokens, { type = "RESOURCE_TOKEN", value = str_val })
 			i = new_i + 1
 
@@ -540,7 +538,7 @@ local function tokenize(src)
 					i = i + 1
 				elseif nc == "." then
 					if seen_period then
-						error_at("Encountered two '.' periods in a number")
+						error_at("Encountered two '.' periods in a number", line_number)
 					end
 					seen_period = true
 					i = i + 1
@@ -560,7 +558,7 @@ local function tokenize(src)
 		elseif c == "#" then
 			i = i + 1
 			if i > #src or src:sub(i, i) ~= " " then
-				error_at("Expected a single space after the '#'")
+				error_at("Expected a single space after the '#'", line_number)
 			end
 
 			i = i + 1
@@ -568,25 +566,25 @@ local function tokenize(src)
 
 			while i <= #src and src:sub(i, i) ~= "\n" do
 				if src:sub(i, i) == "\0" then
-					error_at("Unexpected null byte")
+					error_at("Unexpected null byte", line_number)
 				end
 				i = i + 1
 			end
 
 			local comment_len = i - start
 			if comment_len == 0 then
-				error_at("Expected the comment to contain some text")
+				error_at("Expected the comment to contain some text", line_number)
 			end
 
 			if src:sub(i - 1, i - 1):match("%s") then
-				error_at("A comment has trailing whitespace")
+				error_at("A comment has trailing whitespace", line_number)
 			end
 
 			table.insert(tokens, { type = "COMMENT_TOKEN", value = src:sub(start, i - 1) })
 
 		-- 10. Fallback Error
 		else
-			error_at("Unrecognized character '" .. c .. "'")
+			error_at("Unrecognized character '" .. c .. "'", line_number)
 		end
 	end
 
