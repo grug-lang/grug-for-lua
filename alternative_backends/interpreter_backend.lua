@@ -98,6 +98,17 @@ function _InterpreterEntity:_init_globals(global_variables)
 	self.state.fn_depth = self.state.fn_depth + 1
 	self.start_time = clock()
 
+	if not self.state.safe_mode then
+		self:_init_globals_impl(global_variables)
+
+		self.state.fn_depth = old_fn_depth
+
+		self.state._executed_entity = old_executed_entity
+		self.state._executed_file = old_executed_file
+
+		return
+	end
+
 	local ok, err = pcall(self._init_globals_impl, self, global_variables)
 
 	self.state.fn_depth = old_fn_depth
