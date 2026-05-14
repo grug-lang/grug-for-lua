@@ -120,7 +120,10 @@ See Cloudflare's blog post [LuaJIT Hacking: Getting next() out of the NYI list](
 
 If a specific benchmark is unexpectedly slow even with LuaJIT, `cd` into its directory and run `luajit -jv benchmark.lua` to print its trace.
 
-You can also pass flags to `run_benchmarks.py` its executables: `--impl "luajit -jv" luajit.json`.
+You can also add `-jv` to the executables passed to `run_benchmarks.py`:
+```sh
+python run_benchmarks.py --impl "luajit -jv" luajit.json 2>&1 | tee luajit.log
+```
 
 ### Generating graphs for all results
 
