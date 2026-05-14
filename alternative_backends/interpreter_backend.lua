@@ -146,21 +146,25 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 	-- Assign and verify argument types
 	for i, argument in ipairs(on_fn.arguments) do
 		local arg = args[i]
-		local expected = _get_expected_type(argument.type_name)
-		if type(arg) ~= expected then
-			self.local_variables = parent_local_variables
-			self._flow = {
-				type = "ERROR",
-				err = string.format(
-					"Argument '%s' of %s() must be %s, got %s",
-					argument.name,
-					on_fn_name,
-					argument.type_name,
-					type(arg)
-				),
-			}
-			return
+
+		if self.state.safe_mode then
+			local expected = _get_expected_type(argument.type_name)
+			if type(arg) ~= expected then
+				self.local_variables = parent_local_variables
+				self._flow = {
+					type = "ERROR",
+					err = string.format(
+						"Argument '%s' of %s() must be %s, got %s",
+						argument.name,
+						on_fn_name,
+						argument.type_name,
+						type(arg)
+					),
+				}
+				return
+			end
 		end
+
 		self.local_variables[argument.name] = arg
 	end
 
@@ -393,9 +397,11 @@ function _InterpreterEntity:_run_while_statement_impl(statement)
 			end
 		end
 
-		self:_check_time_limit_exceeded()
-		if self._flow then
-			return
+		if self.state.safe_mode then
+			self:_check_time_limit_exceeded()
+			if self._flow then
+				return
+			end
 		end
 	end
 end
@@ -431,32 +437,38 @@ function _InterpreterEntity:_run_helper_fn(name, args)
 		self.local_variables[argument.name] = args[i]
 	end
 
-	local old_fn_depth = self.state.fn_depth
-	self.state.fn_depth = self.state.fn_depth + 1
+	local old_fn_depth
+	if self.state.safe_mode then
+		old_fn_depth = self.state.fn_depth
+		self.state.fn_depth = self.state.fn_depth + 1
 
-	if self.state.fn_depth > MAX_DEPTH then
-		self.state.runtime_error_handler(
-			"Stack overflow, so check for accidental infinite recursion",
-			"STACK_OVERFLOW",
-			self.fn_name,
-			self.file.relative_path
-		)
-		self.state.fn_depth = old_fn_depth
-		self.local_variables = parent_local_variables
-		self._flow = { type = "STACK_OVERFLOW" }
-		return
-	end
+		if self.state.fn_depth > MAX_DEPTH then
+			self.state.runtime_error_handler(
+				"Stack overflow, so check for accidental infinite recursion",
+				"STACK_OVERFLOW",
+				self.fn_name,
+				self.file.relative_path
+			)
+			self.state.fn_depth = old_fn_depth
+			self.local_variables = parent_local_variables
+			self._flow = { type = "STACK_OVERFLOW" }
+			return
+		end
 
-	self:_check_time_limit_exceeded()
-	if self._flow then
-		self.state.fn_depth = old_fn_depth
-		self.local_variables = parent_local_variables
-		return
+		self:_check_time_limit_exceeded()
+		if self._flow then
+			self.state.fn_depth = old_fn_depth
+			self.local_variables = parent_local_variables
+			return
+		end
 	end
 
 	self:_run_statements(helper_fn.body_statements)
 
-	self.state.fn_depth = old_fn_depth
+	if self.state.safe_mode then
+		self.state.fn_depth = old_fn_depth
+	end
+
 	self.local_variables = parent_local_variables
 
 	local flow = self._flow
@@ -516,13 +528,20 @@ function _InterpreterEntity:_run_game_fn(name, args)
 		return
 	end
 
-	local expected = _get_expected_type(t)
-	if type(result) ~= expected then
-		self._flow = {
-			type = "ERROR",
-			err = string.format("Return value of game function %s() must be %s, got %s", name, expected, type(result)),
-		}
-		return
+	if self.state.safe_mode then
+		local expected = _get_expected_type(t)
+		if type(result) ~= expected then
+			self._flow = {
+				type = "ERROR",
+				err = string.format(
+					"Return value of game function %s() must be %s, got %s",
+					name,
+					expected,
+					type(result)
+				),
+			}
+			return
+		end
 	end
 
 	return result

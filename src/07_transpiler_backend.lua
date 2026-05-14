@@ -117,11 +117,8 @@ function Transpiler:emit_expr(expr)
 	end
 
 	-- Parenthesised sub-expression
-	if expr.expr ~= nil then
-		return "(" .. self:emit_expr(expr.expr) .. ")"
-	end
-
-	error("transpiler: unhandled expression node")
+	assert(expr.expr ~= nil)
+	return "(" .. self:emit_expr(expr.expr) .. ")"
 end
 
 -- Emit a call expression string, routing game-fn calls through `nil` state.
