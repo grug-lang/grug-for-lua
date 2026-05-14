@@ -55,7 +55,7 @@ ffi.cdef([[
     } GrugValueUnion;
 
     typedef struct {
-        void* (*create_grug_state)(const char* mod_api_path, const char* mods_dir_path);
+        void* (*create_grug_state)(const char* mod_api_path, const char* mods_dir_path, bool safe_mode);
         void (*destroy_grug_state)(void* state_ptr);
         void* (*compile_grug_file)(void* state_ptr, const char* file_path, const char** error_out);
 		void (*destroy_grug_file)(void* state_ptr, void* file_id);
@@ -273,7 +273,7 @@ local function list_dir(path)
 	end
 end
 
-function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
+function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 	local mod_api_path = ffi.string(mod_api_path_)
 	local mods_dir_path = ffi.string(mods_dir_path_)
 
@@ -287,7 +287,7 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_)
 				list_dir = list_dir,
 				is_dir = is_dir,
 			},
-			safe_mode = current_config.safe_mode,
+			safe_mode = safe_mode,
 			backend = current_config.backend,
 		})
 	end)
@@ -536,10 +536,8 @@ local function reset_state()
 end
 
 local configs = {
-	{ name = "safe grug transpiler backend" },
-	{ name = "unsafe grug transpiler backend", safe = false },
-	{ name = "safe grug interpreter backend", backend = interpreter_backend },
-	{ name = "unsafe grug interpreter backend", backend = interpreter_backend, safe = false },
+	{ name = "grug transpiler backend" },
+	{ name = "grug interpreter backend", backend = interpreter_backend },
 }
 
 for _, config in ipairs(configs) do

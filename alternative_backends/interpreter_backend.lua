@@ -563,23 +563,32 @@ function InterpreterBackend:init_entity(entity) -- luacheck: ignore
 end
 
 -- Execute `on_fn_name` on `entity` with the given arguments.
--- Mirrors the logic that previously lived in _on_fn_proxy_mt.__call.
 function InterpreterBackend:call_on_function(entity, on_fn_name, ...) -- luacheck: ignore
 	local interp = entity.data
+
+	if not interp.state.safe_mode then
+		interp:_run_on_fn(on_fn_name, ...)
+		return
+	end
+
 	local ok, err = pcall(interp._run_on_fn, interp, on_fn_name, ...)
+
 	if not ok then
 		interp._flow = nil
+
 		-- In safe mode, game functions signal errors by throwing a table with
 		-- type = "GAME_FN_ERROR"; route those to runtime_error_handler.
 		-- When safe_mode is false the raw error is re-raised like any other.
-		if interp.state.safe_mode and type(err) == "table" and err.type == "GAME_FN_ERROR" then
+		if type(err) == "table" and err.type == "GAME_FN_ERROR" then
 			interp.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", interp.fn_name, interp.file.relative_path)
 			return
 		end
+
 		-- Any other Lua error (including RERAISED_GAME_FN_ERROR, STACK_OVERFLOW,
 		-- TIME_LIMIT_EXCEEDED): re-raise so the caller's pcall can handle it.
 		error(err, 0)
 	end
+
 	local flow = interp._flow
 	if flow then
 		interp._flow = nil
