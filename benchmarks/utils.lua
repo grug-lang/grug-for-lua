@@ -97,7 +97,8 @@ function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
 		grug_settings.backend = config.backend
 		grug_settings.safe_mode = config.safe_mode
 		-- grug_settings.transpiler_dump = true -- Use to debug any NYIs
-		benchmark(grug.init(grug_settings), config.name)
+		local state = grug.init(grug_settings)
+		benchmark(state, config.name)
 	end
 end
 
