@@ -1,58 +1,57 @@
-local List
 local Dict
-local list_append
-local dict_has_key
-local dict_get
-local dict_set
+local List
 local assert_fib
+local dict_get
+local dict_has_key
+local dict_set
+local list_append
 
 local fns = {}
 
 local e = {
-	count = 50,
+	me = nil,
+	count = nil,
 }
 
-local function helper_fib(n, memo)
+function fns.helper_fib(n, memo)
 	if dict_has_key(nil, memo, n) then
-		return dict_get(nil, memo, n)
+		do return dict_get(nil, memo, n) end
 	end
-
 	local result = n
-	if n > 1 then
-		result = helper_fib(n - 1, memo) + helper_fib(n - 2, memo)
+	if (n > 1) then
+		result = (fns.helper_fib((n - 1), memo) + fns.helper_fib((n - 2), memo))
 	end
-
 	dict_set(nil, memo, n, result)
-	return result
+	do return result end
 end
 
-local function helper_fib_list(n)
-	local fib_list = List()
-
-	local memo = Dict()
-
+function fns.helper_fib_list(n)
+	local fib_list = List(nil)
+	local memo = Dict(nil)
 	local i = 0
-	while i <= n do
-		list_append(nil, fib_list, helper_fib(i, memo))
-		i = i + 1
+	while (i <= n) do
+		list_append(nil, fib_list, fns.helper_fib(i, memo))
+		i = (i + 1)
+		::continue_1::
 	end
-
-	return fib_list
+	do return fib_list end
 end
 
 function fns.on_run()
-	local fib_numbers = helper_fib_list(e.count)
+	local fib_numbers = fns.helper_fib_list(e.count)
 	assert_fib(nil, fib_numbers)
 end
 
-function fns.init(deps)
-	List = deps.List
+function fns.init(deps, me_id)
 	Dict = deps.Dict
-	list_append = deps.list_append
-	dict_has_key = deps.dict_has_key
-	dict_get = deps.dict_get
-	dict_set = deps.dict_set
+	List = deps.List
 	assert_fib = deps.assert_fib
+	dict_get = deps.dict_get
+	dict_has_key = deps.dict_has_key
+	dict_set = deps.dict_set
+	list_append = deps.list_append
+	e.me = { __grug_type = "id", value = me_id }
+	e.count = 50
 end
 
 return fns

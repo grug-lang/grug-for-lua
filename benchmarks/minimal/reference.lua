@@ -1,25 +1,26 @@
--- These aren't necessary for LuaJIT,
--- but it speeds up Lua 5.5 by ~11%.
 local get_1
 local print_number
 
 local fns = {}
 
 local e = {
-	i = 0,
+	me = nil,
+	i = nil,
 }
 
 function fns.on_increment()
-	e.i = e.i + get_1()
+	e.i = (e.i + get_1(nil))
 end
 
 function fns.on_print()
 	print_number(nil, e.i)
 end
 
-function fns.init(deps)
+function fns.init(deps, me_id)
 	get_1 = deps.get_1
 	print_number = deps.print_number
+	e.me = { __grug_type = "id", value = me_id }
+	e.i = 0
 end
 
 return fns

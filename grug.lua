@@ -2628,10 +2628,10 @@ function Transpiler:emit_stmt(stmt, indentation)
 		self:w(indentation .. self:emit_call_expr(stmt.expr) .. "\n")
 	elseif t == "IfStatement" then
 		self:w(indentation .. "if " .. self:emit_expr(stmt.condition) .. " then\n")
-		self:emit_stmts(stmt.if_body, indentation .. "    ")
+		self:emit_stmts(stmt.if_body, indentation .. "\t")
 		if stmt.else_body and #stmt.else_body > 0 then
 			self:w(indentation .. "else\n")
-			self:emit_stmts(stmt.else_body, indentation .. "    ")
+			self:emit_stmts(stmt.else_body, indentation .. "\t")
 		end
 		self:w(indentation .. "end\n")
 	elseif t == "ReturnStatement" then
@@ -2647,22 +2647,22 @@ function Transpiler:emit_stmt(stmt, indentation)
 		table.insert(self.loop_stack, loop_id)
 
 		self:w(indentation .. "while " .. self:emit_expr(stmt.condition) .. " do\n")
-		self:emit_stmts(stmt.body_statements, indentation .. "    ")
+		self:emit_stmts(stmt.body_statements, indentation .. "\t")
 		-- Place the continue target label at the very end of the loop body so
 		-- that `goto continue_N` (continue) skips the rest of the body but
 		-- still reaches the time-limit check below.
-		self:w(indentation .. "    ::continue_" .. loop_id .. "::\n")
+		self:w(indentation .. "\t::continue_" .. loop_id .. "::\n")
 		-- In safe mode, check the time limit after every iteration (including
 		-- after a `continue`). Throw a table error so the outer pcall in
 		-- call_on_function can recognise and route it to runtime_error_handler.
 		if self.safe_mode then
-			self:w(indentation .. "    if _clock() - _start_time > _time_limit_sec then\n")
+			self:w(indentation .. "\tif _clock() - _start_time > _time_limit_sec then\n")
 			self:w(
 				indentation
-					.. '        error({ type = "TIME_LIMIT_EXCEEDED",'
+					.. '\t\terror({ type = "TIME_LIMIT_EXCEEDED",'
 					.. ' reason = string.format("Took longer than %g milliseconds to run", _time_limit_sec * 1000) }, 0)\n'
 			)
-			self:w(indentation .. "    end\n")
+			self:w(indentation .. "\tend\n")
 		end
 		self:w(indentation .. "end\n")
 
@@ -2747,17 +2747,17 @@ function Transpiler:emit_fn(fn_name, fn)
 	self:w("function fns." .. fn_name .. "(" .. table.concat(params, ", ") .. ")\n")
 
 	if self.safe_mode and fn_name:sub(1, 3) == "on_" then
-		self:w("    _start_time = _clock()\n")
+		self:w("\t_start_time = _clock()\n")
 	elseif self.safe_mode and fn_name:sub(1, 7) == "helper_" then
-		self:w("    if _clock() - _start_time > _time_limit_sec then\n")
+		self:w("\tif _clock() - _start_time > _time_limit_sec then\n")
 		self:w(
-			'        error({ type = "TIME_LIMIT_EXCEEDED",'
+			'\t\terror({ type = "TIME_LIMIT_EXCEEDED",'
 				.. ' reason = string.format("Took longer than %g milliseconds to run", _time_limit_sec * 1000) }, 0)\n'
 		)
-		self:w("    end\n")
+		self:w("\tend\n")
 	end
 
-	self:emit_stmts(fn.body_statements, "    ")
+	self:emit_stmts(fn.body_statements, "\t")
 	self:w("end\n\n")
 end
 
@@ -2796,9 +2796,9 @@ function Transpiler:generate()
 	--    All fields are initialised to nil here; their real values are set
 	--    inside fns.init once the game-function upvalues have been injected.
 	self:w("local e = {\n")
-	self:w("    me = nil,\n")
+	self:w("\tme = nil,\n")
 	for _, g in ipairs(self.file.global_variables) do
-		self:w("    " .. g.name .. " = nil,\n")
+		self:w("\t" .. g.name .. " = nil,\n")
 	end
 	self:w("}\n\n")
 
@@ -2833,14 +2833,14 @@ function Transpiler:generate()
 	--    _time_limit_sec upvalue that while-loop time checks use.
 	self:w("function fns.init(deps, me_id)\n")
 	for _, name in ipairs(game_fn_names) do
-		self:w("    " .. name .. " = deps." .. name .. "\n")
+		self:w("\t" .. name .. " = deps." .. name .. "\n")
 	end
 	if self.safe_mode then
-		self:w("    _time_limit_sec = deps._time_limit_sec\n")
+		self:w("\t_time_limit_sec = deps._time_limit_sec\n")
 	end
-	self:w('    e.me = { __grug_type = "id", value = me_id }\n')
+	self:w('\te.me = { __grug_type = "id", value = me_id }\n')
 	for _, g in ipairs(self.file.global_variables) do
-		self:w("    e." .. g.name .. " = " .. self:emit_expr(g.expr) .. "\n")
+		self:w("\te." .. g.name .. " = " .. self:emit_expr(g.expr) .. "\n")
 	end
 	self:w("end\n\n")
 
@@ -2869,6 +2869,9 @@ end
 -- Generates the Lua source for the file and, on hot reload, migrates existing entities.
 function TranspilerBackend:insert_file(new_file, existing_file) -- luacheck: ignore
 	new_file._transpiled_code = transpile_grug_file(new_file)
+
+	-- This is used to diff against reference.lua files in benchmarks.
+	new_file.state._latest_transpiled_code = new_file._transpiled_code
 
 	if existing_file then
 		for entity, _ in pairs(existing_file.entities or {}) do
@@ -2959,24 +2962,20 @@ function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck
 		error("The function '" .. on_fn_name .. "' is not defined by the file " .. entity.file.relative_path, 0)
 	end
 
-	local old_fn_name = entity.fn_name
-	entity.fn_name = on_fn_name
-
-	local old_executed_file = entity.state._executed_file
-	entity.state._executed_file = entity.file
-	local old_executed_entity = entity.state._executed_entity
-	entity.state._executed_entity = entity
-
 	-- When safe_mode is false the caller guarantees no bugs exist in any mod,
 	-- so we skip the pcall entirely. Any Lua error (GAME_FN_ERROR, stack
 	-- overflow, time limit, …) propagates raw to the caller.
 	if not entity.state.safe_mode then
 		fn(...)
-		entity.fn_name = old_fn_name
-		entity.state._executed_entity = old_executed_entity
-		entity.state._executed_file = old_executed_file
 		return
 	end
+
+	local old_fn_name = entity.fn_name
+	entity.fn_name = on_fn_name
+	local old_executed_file = entity.state._executed_file
+	entity.state._executed_file = entity.file
+	local old_executed_entity = entity.state._executed_entity
+	entity.state._executed_entity = entity
 
 	-- safe_mode=true: wrap in a pcall and route all runtime errors to
 	-- runtime_error_handler so the game never crashes on bad mod code.
@@ -3466,6 +3465,13 @@ local function assert_mod_api(mod_api)
 			)
 		)
 	end
+end
+
+function grug:get_transpiled_code()
+	if not self._latest_transpiled_code then
+		error("Error: get_transpiled_code() is only supported by transpiler backends.")
+	end
+	return self._latest_transpiled_code
 end
 
 local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path) -- luacheck: ignore

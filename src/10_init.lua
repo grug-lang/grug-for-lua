@@ -376,6 +376,13 @@ local function assert_mod_api(mod_api)
 	end
 end
 
+function grug:get_transpiled_code()
+	if not self._latest_transpiled_code then
+		error("Error: get_transpiled_code() is only supported by transpiler backends.")
+	end
+	return self._latest_transpiled_code
+end
+
 local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path) -- luacheck: ignore
 	print("grug runtime error in " .. on_fn_name .. "(): " .. reason .. ", in " .. on_fn_path)
 end
