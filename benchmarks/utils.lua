@@ -181,6 +181,15 @@ local function check_unsafe_grug_transpiler_backend_wasnt_slow()
 		utils.log(string.format("  grug: %.2f iters/sec", grug_speed))
 		utils.log(string.format("  Lua:  %.2f iters/sec", ref_speed))
 		os.exit(1)
+	elseif percent_slower < -3 then
+		local percent_faster = math.abs(percent_slower)
+		utils.log(string.format(
+			"Error: The unsafe grug transpiler backend was suspiciously fast"
+			.. " (%.2f%% faster than the Lua reference)!",
+			percent_faster))
+		utils.log(string.format("  grug: %.2f iters/sec", grug_speed))
+		utils.log(string.format("  Lua:  %.2f iters/sec", ref_speed))
+		os.exit(1)
 	elseif percent_slower < 0 then
 		local percent_faster = math.abs(percent_slower)
 		utils.log(string.format(
