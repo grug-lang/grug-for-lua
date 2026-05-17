@@ -331,34 +331,6 @@ function grug:register(name, fn)
 	self.game_fns[name] = fn
 end
 
-local function assert_on_functions_sorted(entity_name, on_functions)
-	local keys = {}
-	for _, fn in ipairs(on_functions) do
-		table.insert(keys, fn.name)
-	end
-
-	local sorted_keys = {}
-	for i = 1, #keys do
-		sorted_keys[i] = keys[i]
-	end
-	table.sort(sorted_keys)
-
-	for i, actual in ipairs(keys) do
-		local expected = sorted_keys[i]
-		if actual ~= expected then
-			error(
-				string.format(
-					"Error: on_functions for entity '%s' must be sorted alphabetically in mod_api.json, "
-						.. "so '%s' must come before '%s'",
-					entity_name,
-					expected,
-					actual
-				)
-			)
-		end
-	end
-end
-
 local function assert_mod_api(mod_api)
 	local entities = mod_api.entities
 	if type(entities) ~= "table" then
@@ -380,19 +352,15 @@ local function assert_mod_api(mod_api)
 		end
 
 		local on_functions = entity.on_functions
-		if on_functions ~= nil then
-			if type(on_functions) ~= "table" then
-				error(
-					string.format(
-						"Error: 'on_functions' for entity '%s' must be a JSON array, but got %s: %s",
-						entity_name,
-						type(on_functions),
-						tostring(on_functions)
-					)
+		if on_functions ~= nil and type(on_functions) ~= "table" then
+			error(
+				string.format(
+					"Error: 'on_functions' for entity '%s' must be a JSON array, but got %s: %s",
+					entity_name,
+					type(on_functions),
+					tostring(on_functions)
 				)
-			end
-
-			assert_on_functions_sorted(entity_name, on_functions)
+			)
 		end
 	end
 
