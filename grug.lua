@@ -3459,9 +3459,11 @@ local function assert_mod_api(mod_api)
 	local game_functions = mod_api.game_functions
 	if type(game_functions) ~= "table" then
 		error(
-			string.format("Error: 'game_functions' must be a JSON object, but got %s: %s"),
-			type(game_functions),
-			tostring(game_functions)
+			string.format(
+				"Error: 'game_functions' must be a JSON object, but got %s: %s",
+				type(game_functions),
+				tostring(game_functions)
+			)
 		)
 	end
 end
