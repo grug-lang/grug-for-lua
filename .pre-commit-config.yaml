@@ -13,6 +13,8 @@ repos:
     rev: v2.0.2
     hooks:
       - id: stylua
+        pass_filenames: false
+        args: [., '-g !benchmarks/**/reference.lua']
 
   # luacheck is intentionally NOT using a repo hook
   # because it *required* LuaRocks to be installed
@@ -24,7 +26,7 @@ repos:
         language: system
         types: [lua]
         pass_filenames: false
-        args: [., --exclude-files, src, examples]
+        args: [., --exclude-files, src, examples, 'benchmarks/**/reference.lua']
 
       - id: forbid-nested-functions
         name: Forbid nested function definitions in Lua files
