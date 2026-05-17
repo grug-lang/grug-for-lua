@@ -6,10 +6,9 @@ local json = require("json")
 
 -- CLI Arguments
 local path = arg[1] or "results.json"
-local batch_size = tonumber(arg[2]) or 1000
-local warmup_seconds = tonumber(arg[3]) or 1
-local measured_seconds = tonumber(arg[4]) or 1
-local runs = tonumber(arg[5]) or 10
+local warmup_seconds = tonumber(arg[2]) or 1
+local measured_seconds = tonumber(arg[3]) or 1
+local runs = tonumber(arg[4]) or 10
 
 local utils = {}
 
@@ -28,58 +27,90 @@ function utils.register_fns(state, fns)
 	end
 end
 
+-- Doubles batch size on every clock() call until a single batch
+-- takes at least warmup_seconds. Returns the final batch size and
+-- the elapsed time of the last (qualifying) batch, so the caller
+-- can reuse that measurement as the warmup sample instead of
+-- throwing away the work.
+local function detect_batch_size(fn, entity)
+	local batch_size = 1
+	while true do
+		local start = clock()
+		for _ = 1, batch_size do
+			fn(entity)
+		end
+		local elapsed = clock() - start
+		if elapsed >= warmup_seconds then
+			return batch_size, elapsed
+		end
+		batch_size = batch_size * 2
+	end
+end
+
 -- Measures execution time of a function
 function utils.benchmark(name, fn, entity)
 	utils.log("--- Benchmarking " .. name .. " ---")
 
-	utils.log("Warming up...")
+	-- 1. Auto-detect batch size, doubling until one batch fills warmup_seconds.
+	--    The qualifying batch also doubles as the warmup sample.
+	utils.log("Detecting batch size (doubling until one batch >= " .. warmup_seconds .. "s)...")
+	local batch_size, actual_warmup_time = detect_batch_size(fn, entity)
+	local warmup_iterations = batch_size
+	utils.log("Batch size settled at " .. batch_size .. " (took " .. string.format("%.4f", actual_warmup_time) .. "s)")
 
-	-- 1. Warmup phase
-	-- We use batch_size to avoid calling clock() too frequently
-	local warmup_iterations = 0
-	local warmup_start = clock()
-	while clock() - warmup_start < warmup_seconds do
-		for _ = 1, batch_size do
-			fn(entity)
-		end
-		warmup_iterations = warmup_iterations + batch_size
-	end
-	local actual_warmup_time = clock() - warmup_start
-
-	-- 2. Calculate scaled iterations for the measured phase
-	-- iterations = (iters / 1s) * measured_seconds
+	-- 2. Calculate scaled iterations for the measured phase:
+	--    iterations = (iters_per_sec) * measured_seconds
 	local total_measured_iterations = math.floor((warmup_iterations / actual_warmup_time) * measured_seconds)
 
-	utils.log("Measuring...")
+	utils.log("Measuring " .. runs .. " runs of " .. total_measured_iterations .. " iterations each...")
 
-	-- 3. Actual measurement (repeat multiple times, keep fastest)
-	local best_elapsed = math.huge
+	-- 3. Collect a time sample per run, then derive the median.
+	local elapsed_times = {}
 
 	for run = 1, runs do
 		utils.log("Run " .. run .. "/" .. runs .. "...")
 
-		local start = clock()
+		collectgarbage("collect") -- normalize GC state between runs
 
+		local start = clock()
 		for _ = 1, total_measured_iterations do
 			fn(entity)
 		end
-
 		local elapsed = clock() - start
 
-		utils.log("Elapsed: " .. elapsed .. " seconds")
-
-		if elapsed < best_elapsed then
-			best_elapsed = elapsed
-		end
+		utils.log("Elapsed: " .. string.format("%.4f", elapsed) .. "s")
+		table.insert(elapsed_times, elapsed)
 	end
 
-	local elapsed = best_elapsed
+	-- 4. Sort and take the median (robust against lucky/unlucky outliers).
+	table.sort(elapsed_times)
+	local median_elapsed = elapsed_times[math.ceil(#elapsed_times / 2)]
+
+	-- 5. Compute the coefficient of variation (stddev / mean), so high-noise runs are visible.
+	local mean = 0
+	for _, t in ipairs(elapsed_times) do
+		mean = mean + t
+	end
+	mean = mean / #elapsed_times
+
+	local variance = 0
+	for _, t in ipairs(elapsed_times) do
+		variance = variance + (t - mean) ^ 2
+	end
+	variance = variance / #elapsed_times
+	local cv = math.sqrt(variance) / mean * 100
+
+	if cv > 2 then
+		utils.log(string.format("  WARNING: high variance (CV=%.1f%%) — results may be unreliable", cv))
+	else
+		utils.log(string.format("  Variance OK (CV=%.1f%%)", cv))
+	end
 
 	table.insert(specializations, {
 		name = name,
-		elapsed = elapsed,
+		elapsed = median_elapsed,
 		iterations = total_measured_iterations,
-		iters_per_sec = total_measured_iterations / elapsed,
+		iters_per_sec = total_measured_iterations / median_elapsed,
 	})
 
 	utils.log("--- Finished benchmarking " .. name .. " ---")
@@ -143,30 +174,24 @@ local function check_unsafe_grug_transpiler_backend_wasnt_slow()
 	local percent_slower = ((ref_speed - grug_speed) / ref_speed) * 100
 
 	if percent_slower > 3 then
-		utils.log(
-			string.format(
-				"Error: The unsafe grug transpiler backend was %.2f%% slower than the Lua reference!",
-				percent_slower
-			)
-		)
+		utils.log(string.format(
+			"Error: The unsafe grug transpiler backend was"
+			.. " %.2f%% slower than the Lua reference!",
+			percent_slower))
 		utils.log(string.format("  grug: %.2f iters/sec", grug_speed))
 		utils.log(string.format("  Lua:  %.2f iters/sec", ref_speed))
 		os.exit(1)
 	elseif percent_slower < 0 then
 		local percent_faster = math.abs(percent_slower)
-		utils.log(
-			string.format(
-				"Success: The unsafe grug transpiler backend was %.2f%% faster than the Lua reference",
-				percent_faster
-			)
-		)
+		utils.log(string.format(
+			"Success: The unsafe grug transpiler backend was"
+			.. " %.2f%% faster than the Lua reference",
+			percent_faster))
 	else
-		utils.log(
-			string.format(
-				"Success: The unsafe grug transpiler backend was only %.2f%% slower than the Lua reference",
-				percent_slower
-			)
-		)
+		utils.log(string.format(
+			"Success: The unsafe grug transpiler backend was"
+			.. " only %.2f%% slower than the Lua reference",
+			percent_slower))
 	end
 end
 
@@ -175,7 +200,6 @@ function utils.save_results()
 
 	local data = {
 		metadata = {
-			batch_size = batch_size,
 			target_duration = measured_seconds,
 			lua_version = _VERSION,
 			jit_version = jit and jit.version,
