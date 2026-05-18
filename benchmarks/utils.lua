@@ -27,23 +27,22 @@ function utils.register_fns(state, fns)
 	end
 end
 
--- Doubles batch size on every clock() call until a single batch
--- takes at least warmup_seconds. Returns the final batch size and
--- the elapsed time of the last (qualifying) batch, so the caller
--- can reuse that measurement as the warmup sample instead of
--- throwing away the work.
-local function detect_batch_size(fn, entity)
-	local batch_size = 1
-	while true do
-		local start = clock()
-		for _ = 1, batch_size do
-			fn(entity)
-		end
-		local elapsed = clock() - start
-		if elapsed >= warmup_seconds then
-			return batch_size, elapsed
-		end
-		batch_size = batch_size * 2
+local function get_batch_size(name)
+	-- This is used to compare optimal grug to the Lua reference.
+	local many = 10000000
+
+	if name == "safe grug transpiler backend" then
+		return 100000
+	elseif name == "unsafe grug transpiler backend" then
+		return many
+	elseif name == "safe grug interpreter backend" then
+		return 10000
+	elseif name == "unsafe grug interpreter backend" then
+		return 10000
+	elseif name == "unsafe lua reference" then
+		return many
+	else
+		error("Missing an elif")
 	end
 end
 
@@ -51,18 +50,16 @@ end
 function utils.benchmark(name, fn, entity)
 	utils.log("--- Benchmarking " .. name .. " ---")
 
-	-- 1. Auto-detect batch size, doubling until one batch fills warmup_seconds.
-	--    The qualifying batch also doubles as the warmup sample.
-	utils.log("Detecting batch size (doubling until one batch >= " .. warmup_seconds .. "s)...")
-	local batch_size, actual_warmup_time = detect_batch_size(fn, entity)
-	local warmup_iterations = batch_size
-	utils.log("Batch size settled at " .. batch_size .. " (took " .. string.format("%.4f", actual_warmup_time) .. "s)")
+	local batch_size = get_batch_size(name)
+	utils.log("Using fixed batch size: " .. batch_size)
 
-	-- 2. Calculate scaled iterations for the measured phase:
-	--    iterations = (iters_per_sec) * measured_seconds
-	local total_measured_iterations = math.floor((warmup_iterations / actual_warmup_time) * measured_seconds)
+	utils.log("Warming up...")
+	local start = clock()
+	for _ = 1, batch_size do fn(entity) end
+	local stable_time = clock() - start
+	utils.log("Stable batch took " .. string.format("%.4f", stable_time) .. "s")
 
-	utils.log("Measuring " .. runs .. " runs of " .. total_measured_iterations .. " iterations each...")
+	utils.log("Measuring " .. runs .. " runs of " .. batch_size .. " iterations each...")
 
 	-- 3. Collect a time sample per run, then derive the median.
 	local elapsed_times = {}
@@ -73,7 +70,7 @@ function utils.benchmark(name, fn, entity)
 		collectgarbage("collect") -- normalize GC state between runs
 
 		local start = clock()
-		for _ = 1, total_measured_iterations do
+		for _ = 1, batch_size do
 			fn(entity)
 		end
 		local elapsed = clock() - start
@@ -109,8 +106,8 @@ function utils.benchmark(name, fn, entity)
 	table.insert(specializations, {
 		name = name,
 		elapsed = median_elapsed,
-		iterations = total_measured_iterations,
-		iters_per_sec = total_measured_iterations / median_elapsed,
+		iterations = batch_size,
+		iters_per_sec = batch_size / median_elapsed,
 	})
 
 	utils.log("--- Finished benchmarking " .. name .. " ---")
