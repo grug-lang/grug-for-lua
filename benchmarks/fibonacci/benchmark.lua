@@ -65,9 +65,18 @@ local function benchmark(state, name)
 	utils.benchmark(name, on_run, e)
 end
 
-utils.benchmark_interpreter_and_transpiler({
-	grug_files = { "mymod/fib-Benchmark.grug" },
-}, benchmark)
+utils.benchmark_interpreter_and_transpiler(
+	{
+		grug_files = { "mymod/fib-Benchmark.grug" },
+	},
+	benchmark,
+	{
+		["safe grug transpiler backend"] = 100000,
+		["unsafe grug transpiler backend"] = 10000000,
+		["safe grug interpreter backend"] = 10000,
+		["unsafe grug interpreter backend"] = 10000,
+	}
+)
 
 if utils.should_run_lua_reference() then
 	local ref = require("reference")

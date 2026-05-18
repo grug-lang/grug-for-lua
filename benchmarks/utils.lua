@@ -13,6 +13,8 @@ local utils = {}
 
 local specializations = {}
 
+local run_sizes = nil
+
 local clock = os.clock
 
 local selected_specialization = nil
@@ -45,22 +47,11 @@ function utils.register_fns(state, fns)
 	end
 end
 
-local function get_batch_size(name)
-	-- This is used to compare optimal grug to the Lua reference.
-	local many = 10000000
-
-	if name == "safe grug transpiler backend" then
-		return 100000
-	elseif name == "unsafe grug transpiler backend" then
-		return many
-	elseif name == "safe grug interpreter backend" then
-		return 10000
-	elseif name == "unsafe grug interpreter backend" then
-		return 10000
-	elseif name == "unsafe lua reference" then
-		return many
+local function get_run_size(name)
+	if name == "unsafe lua reference" then
+		return run_sizes["unsafe grug transpiler backend"]
 	else
-		error("Missing an elif")
+		return run_sizes[name]
 	end
 end
 
@@ -68,16 +59,18 @@ end
 function utils.benchmark(name, fn, entity)
 	utils.log("--- Benchmarking " .. name .. " ---")
 
-	local batch_size = get_batch_size(name)
-	utils.log("Using fixed batch size: " .. batch_size)
+	local run_size = get_run_size(name)
+	utils.log("Using fixed batch size: " .. run_size)
 
 	utils.log("Warming up...")
 	local warmup_start = clock()
-	for _ = 1, batch_size do fn(entity) end
+	for _ = 1, run_size do
+		fn(entity)
+	end
 	local warmup_time = clock() - warmup_start
 	utils.log("Warming up took " .. string.format("%.4f", warmup_time) .. "s")
 
-	utils.log("Measuring " .. runs .. " runs of " .. batch_size .. " iterations each...")
+	utils.log("Measuring " .. runs .. " runs of " .. run_size .. " iterations each...")
 
 	-- 3. Collect a time sample per run, then derive the median.
 	local elapsed_times = {}
@@ -88,7 +81,7 @@ function utils.benchmark(name, fn, entity)
 		collectgarbage("collect") -- normalize GC state between runs
 
 		local start = clock()
-		for _ = 1, batch_size do
+		for _ = 1, run_size do
 			fn(entity)
 		end
 		local elapsed = clock() - start
@@ -124,8 +117,8 @@ function utils.benchmark(name, fn, entity)
 	table.insert(specializations, {
 		name = name,
 		elapsed = median_elapsed,
-		iterations = batch_size,
-		iters_per_sec = batch_size / median_elapsed,
+		iterations = run_size,
+		iters_per_sec = run_size / median_elapsed,
 	})
 
 	utils.log("--- Finished benchmarking " .. name .. " ---")
@@ -148,7 +141,9 @@ local function get_config()
 	error("Unknown specialization: " .. selected_specialization)
 end
 
-function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
+function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark, run_sizes_)
+	run_sizes = run_sizes_
+
 	if selected_specialization == "unsafe lua reference" then
 		return
 	end

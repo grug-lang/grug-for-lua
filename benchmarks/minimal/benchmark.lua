@@ -26,9 +26,18 @@ local function benchmark(state, name)
 	e:on_print()
 end
 
-utils.benchmark_interpreter_and_transpiler({
-	grug_files = { "mymod/incrementer-Benchmark.grug" },
-}, benchmark)
+utils.benchmark_interpreter_and_transpiler(
+	{
+		grug_files = { "mymod/incrementer-Benchmark.grug" },
+	},
+	benchmark,
+	{
+		["safe grug transpiler backend"] = 10000000,
+		["unsafe grug transpiler backend"] = 10000000000,
+		["safe grug interpreter backend"] = 10000000,
+		["unsafe grug interpreter backend"] = 10000000,
+	}
+)
 
 if utils.should_run_lua_reference() then
 	local ref = require("reference")
