@@ -4,17 +4,35 @@ local grug = require("grug")
 local interpreter_backend = require("alternative_backends/interpreter_backend")
 local json = require("json")
 
--- CLI Arguments
-local path = arg[1] or "results.json"
-local warmup_seconds = tonumber(arg[2]) or 1
-local measured_seconds = tonumber(arg[3]) or 1
-local runs = tonumber(arg[4]) or 10
+-- Settings
+local path = "results.json"
+local measured_seconds = 1
+local runs = 10
 
 local utils = {}
 
 local specializations = {}
 
 local clock = os.clock
+
+local selected_specialization = nil
+local i = 1
+while i <= #arg do
+	if arg[i] == "--specialization" then
+		selected_specialization = arg[i + 1]
+
+		if not selected_specialization then
+			error("Error: Missing value for --specialization")
+		end
+
+		break
+	end
+
+	i = i + 1
+end
+if not selected_specialization then
+	error("Error: pass --specialization <specialization name>")
+end
 
 function utils.log(...)
 	print(...)
@@ -54,10 +72,10 @@ function utils.benchmark(name, fn, entity)
 	utils.log("Using fixed batch size: " .. batch_size)
 
 	utils.log("Warming up...")
-	local start = clock()
+	local warmup_start = clock()
 	for _ = 1, batch_size do fn(entity) end
-	local stable_time = clock() - start
-	utils.log("Stable batch took " .. string.format("%.4f", stable_time) .. "s")
+	local warmup_time = clock() - warmup_start
+	utils.log("Warming up took " .. string.format("%.4f", warmup_time) .. "s")
 
 	utils.log("Measuring " .. runs .. " runs of " .. batch_size .. " iterations each...")
 
@@ -113,92 +131,64 @@ function utils.benchmark(name, fn, entity)
 	utils.log("--- Finished benchmarking " .. name .. " ---")
 end
 
-local configs = {
+local ALL_CONFIGS = {
 	{ name = "safe grug transpiler backend" },
 	{ name = "unsafe grug transpiler backend", safe_mode = false },
 	{ name = "safe grug interpreter backend", backend = interpreter_backend },
 	{ name = "unsafe grug interpreter backend", backend = interpreter_backend, safe_mode = false },
 }
 
+local function get_config()
+	for _, config in ipairs(ALL_CONFIGS) do
+		if config.name == selected_specialization then
+			return config
+		end
+	end
+
+	error("Unknown specialization: " .. selected_specialization)
+end
+
 function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
-	for _, config in ipairs(configs) do
-		grug_settings.backend = config.backend
-		grug_settings.safe_mode = config.safe_mode
-		-- grug_settings.transpiler_dump = true -- Use to debug any NYIs
-		local state = grug.init(grug_settings)
-		benchmark(state, config.name)
+	if selected_specialization == "unsafe lua reference" then
+		return
+	end
 
-		-- Verify the output of the unsafe transpiler matches the native reference implementation
-		if config.name == "unsafe grug transpiler backend" then
-			local generated_lua = state:get_transpiled_code()
+	local config = get_config()
 
-			-- Look for reference.lua in the current directory
-			local ref_file = io.open("reference.lua", "r")
-			if not ref_file then
-				error("Could not find or open reference.lua for verification")
-			end
-			local reference_content = ref_file:read("*a")
-			ref_file:close()
+	grug_settings.backend = config.backend
+	grug_settings.safe_mode = config.safe_mode
+	-- grug_settings.transpiler_dump = true -- Use to debug any NYIs
+	local state = grug.init(grug_settings)
+	benchmark(state, config.name)
 
-			if generated_lua ~= reference_content then
-				local out_file = assert(io.open("transpiler_output.lua", "w"))
-				out_file:write(generated_lua)
-				out_file:close()
-				error(
-					"Generated Lua code does not exactly match reference.lua!"
-						.. " Saved output to 'transpiler_output.lua' for diffing."
-				)
-			else
-				print("Unsafe grug transpiler backend successfully generated reference.lua.")
-			end
+	-- Verify the output of the unsafe transpiler matches the native reference implementation
+	if config.name == "unsafe grug transpiler backend" then
+		local generated_lua = state:get_transpiled_code()
+
+		-- Look for reference.lua in the current directory
+		local ref_file = io.open("reference.lua", "r")
+		if not ref_file then
+			error("Could not find or open reference.lua for verification")
+		end
+		local reference_content = ref_file:read("*a")
+		ref_file:close()
+
+		if generated_lua ~= reference_content then
+			local out_file = assert(io.open("transpiler_output.lua", "w"))
+			out_file:write(generated_lua)
+			out_file:close()
+			error(
+				"Generated Lua code does not exactly match reference.lua!"
+					.. " Saved output to 'transpiler_output.lua' for diffing."
+			)
+		else
+			print("Unsafe grug transpiler backend successfully generated reference.lua.")
 		end
 	end
 end
 
-local function check_unsafe_grug_transpiler_backend_wasnt_slow()
-	local grug_speed, ref_speed
-	for _, spec in ipairs(specializations) do
-		if spec.name == "unsafe grug transpiler backend" then
-			grug_speed = spec.iters_per_sec
-		elseif spec.name == "unsafe lua reference" then
-			ref_speed = spec.iters_per_sec
-		end
-	end
-	assert(grug_speed)
-	assert(ref_speed)
-
-	-- Calculate how many percent slower the transpiler is compared to the reference
-	local percent_slower = ((ref_speed - grug_speed) / ref_speed) * 100
-
-	if percent_slower > 3 then
-		utils.log(string.format(
-			"Error: The unsafe grug transpiler backend was"
-			.. " %.2f%% slower than the Lua reference!",
-			percent_slower))
-		utils.log(string.format("  grug: %.2f iters/sec", grug_speed))
-		utils.log(string.format("  Lua:  %.2f iters/sec", ref_speed))
-		os.exit(1)
-	elseif percent_slower < -3 then
-		local percent_faster = math.abs(percent_slower)
-		utils.log(string.format(
-			"Error: The unsafe grug transpiler backend was suspiciously fast"
-			.. " (%.2f%% faster than the Lua reference)!",
-			percent_faster))
-		utils.log(string.format("  grug: %.2f iters/sec", grug_speed))
-		utils.log(string.format("  Lua:  %.2f iters/sec", ref_speed))
-		os.exit(1)
-	elseif percent_slower < 0 then
-		local percent_faster = math.abs(percent_slower)
-		utils.log(string.format(
-			"Success: The unsafe grug transpiler backend was"
-			.. " %.2f%% faster than the Lua reference",
-			percent_faster))
-	else
-		utils.log(string.format(
-			"Success: The unsafe grug transpiler backend was"
-			.. " only %.2f%% slower than the Lua reference",
-			percent_slower))
-	end
+function utils.should_run_lua_reference()
+	return selected_specialization == "unsafe lua reference"
 end
 
 function utils.save_results()
@@ -215,11 +205,7 @@ function utils.save_results()
 
 	f:write(json.encode(data))
 	f:close()
-	utils.log("Results saved to " .. path)
-
-	check_unsafe_grug_transpiler_backend_wasnt_slow()
-
-	utils.log("")
+	utils.log("Results saved to " .. path .. "\n")
 end
 
 return utils

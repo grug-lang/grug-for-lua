@@ -1,6 +1,5 @@
 package.path = package.path .. ";../?.lua"
 
-local ref = require("reference")
 local utils = require("utils")
 
 local fns = {}
@@ -31,7 +30,9 @@ utils.benchmark_interpreter_and_transpiler({
 	grug_files = { "mymod/incrementer-Benchmark.grug" },
 }, benchmark)
 
-do
+if utils.should_run_lua_reference() then
+	local ref = require("reference")
+
 	ref.init({
 		get_1 = get_1,
 		print_number = print_number,

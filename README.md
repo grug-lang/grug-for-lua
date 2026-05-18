@@ -118,11 +118,15 @@ The CI throws an error if it finds any [LuaJIT NYI](https://github.com/tarantool
 
 See Cloudflare's blog post [LuaJIT Hacking: Getting next() out of the NYI list](https://blog.cloudflare.com/luajit-hacking-getting-next-out-of-the-nyi-list/) for more information.
 
-If a specific benchmark is unexpectedly slow even with LuaJIT, `cd` into its directory and run `luajit -jv benchmark.lua` to print its trace.
-
-You can also add `-jv` to the executables passed to `run_benchmarks.py`:
+You can also add `-jv` to LuaJIT executables passed to `run_benchmarks.py`, if you need the trace of a slow benchmark specialization:
 ```sh
-python run_benchmarks.py --impl "luajit -jv" luajit.json 2>&1 | tee luajit.log
+python run_benchmarks.py \
+  --benchmark fibonacci \
+  --specialization "unsafe grug transpiler backend" \
+  --specialization "unsafe lua reference" \
+  --impl "luajit -jv" luajit.json \
+  2>&1 \
+  | tee luajit.log
 ```
 
 ### Generating graphs for all results
