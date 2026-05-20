@@ -13,7 +13,7 @@ function GrugEntity:__index(key) -- luacheck: ignore
 
 	if type(key) == "string" and string.sub(key, 1, 3) == "on_" then
 		local fn = self.state.backend:get_on_fn(self, key)
-		rawset(self, key, fn)  -- cache: future accesses hit the table directly, no __index
+		rawset(self, key, fn) -- cache: future accesses hit the table directly, no __index
 		return fn
 	end
 end

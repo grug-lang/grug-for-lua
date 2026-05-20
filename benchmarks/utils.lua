@@ -6,13 +6,12 @@ local json = require("json")
 
 -- Settings
 local path = "results.json"
+local warmup_seconds = 1
 local measured_seconds = 1
 
 local utils = {}
 
 local specializations = {}
-
-local run_sizes = nil
 
 local clock = os.clock
 
@@ -46,11 +45,21 @@ function utils.register_fns(state, fns)
 	end
 end
 
-local function get_run_size(name)
-	if name == "unsafe lua reference" then
-		return run_sizes["unsafe grug transpiler backend"]
-	else
-		return run_sizes[name]
+-- Doubles batch size on every clock() call until a single batch
+-- takes at least warmup_seconds. Returns the final batch size and
+-- the elapsed time of the last (qualifying) batch.
+local function detect_batch_size(fn, entity)
+	local batch_size = 1
+	while true do
+		local start = clock()
+		for _ = 1, batch_size do
+			fn(entity)
+		end
+		local elapsed = clock() - start
+		if elapsed >= warmup_seconds then
+			return batch_size, elapsed
+		end
+		batch_size = batch_size * 2
 	end
 end
 
@@ -58,24 +67,19 @@ end
 function utils.benchmark(name, fn, entity)
 	utils.log("--- Benchmarking " .. name .. " ---")
 
-	local run_size = get_run_size(name)
-	utils.log("Using fixed batch size: " .. run_size)
+	utils.log("Detecting batch size (doubling until one batch >= " .. warmup_seconds .. "s)...")
+	local batch_size, actual_warmup_time = detect_batch_size(fn, entity)
+	local warmup_iterations = batch_size
+	utils.log("Batch size settled at " .. batch_size .. " (took " .. string.format("%.4f", actual_warmup_time) .. "s)")
 
-	utils.log("Warming up...")
-	local warmup_start = clock()
-	for _ = 1, run_size do
-		fn(entity)
-	end
-	local warmup_time = clock() - warmup_start
-	utils.log("Warming up took " .. string.format("%.4f", warmup_time) .. "s")
+	local total_measured_iterations = math.floor((warmup_iterations / actual_warmup_time) * measured_seconds)
 
-	utils.log("Measuring " .. run_size .. " iterations...")
+	utils.log("Measuring " .. total_measured_iterations .. " iterations...")
 
-	-- TODO: Check what difference adding this makes
 	-- collectgarbage("collect") -- normalize GC state before the measured run
 
 	local start = clock()
-	for _ = 1, run_size do
+	for _ = 1, total_measured_iterations do
 		fn(entity)
 	end
 	local elapsed = clock() - start
@@ -85,8 +89,8 @@ function utils.benchmark(name, fn, entity)
 	table.insert(specializations, {
 		name = name,
 		elapsed = elapsed,
-		iterations = run_size,
-		iters_per_sec = run_size / elapsed,
+		iterations = total_measured_iterations,
+		iters_per_sec = total_measured_iterations / elapsed,
 	})
 
 	utils.log("--- Finished benchmarking " .. name .. " ---")
@@ -109,9 +113,7 @@ local function get_config()
 	error("Unknown specialization: " .. selected_specialization)
 end
 
-function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark, run_sizes_)
-	run_sizes = run_sizes_
-
+function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
 	if selected_specialization == "unsafe lua reference" then
 		return
 	end

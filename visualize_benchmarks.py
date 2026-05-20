@@ -17,12 +17,15 @@ sns.set_theme(style="whitegrid")
 
 
 def load_results(directory: Path) -> List[Dict[str, Any]]:
+    # Ignore both the temporary 'results.json' and 'mod_api.json'
     json_files = sorted(
-        path for path in directory.glob("*.json") if path.name != "mod_api.json"
+        path
+        for path in directory.glob("*.json")
+        if path.name not in ["mod_api.json", "results.json"]
     )
 
     if not json_files:
-        sys.exit(f"Error: no .json files found in '{directory}'")
+        sys.exit(f"Error: no valid .json files found in '{directory}'")
 
     records: List[Dict[str, Any]] = []
     for path in json_files:

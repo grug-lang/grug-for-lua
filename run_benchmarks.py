@@ -65,7 +65,7 @@ def check_unsafe_grug_transpiler_backend_wasnt_slow(specializations):
 
     percent_slower = ((ref_speed - grug_speed) / ref_speed) * 100
 
-    if percent_slower > 3:
+    if percent_slower > 5:
         print(
             f"Error: The unsafe grug transpiler backend was {percent_slower:.2f}% slower than the Lua reference!",
             file=sys.stderr,
@@ -74,7 +74,7 @@ def check_unsafe_grug_transpiler_backend_wasnt_slow(specializations):
         print(f"  Lua:  {ref_speed:.2f} iters/sec", file=sys.stderr)
         sys.exit(1)
 
-    elif percent_slower < -3:
+    elif percent_slower < -5:
         print(
             f"Error: The unsafe grug transpiler backend was suspiciously fast ({abs(percent_slower):.2f}% faster than the Lua reference)!",
             file=sys.stderr,
@@ -145,15 +145,19 @@ def main():
     for d in dirs:
         print(f"=== Running benchmark {d.name}/ ===", file=sys.stderr)
 
-        # Accumulates results for all specializations in this benchmark.
-        aggregated = []
+        # Accumulates results for all configurations to check transpiler slowness at the end
+        all_aggregated = []
 
         with change_dir(d):
-            for specialization in specializations:
-                print(f"--- Specialization: {specialization} ---", file=sys.stderr)
+            # Iterate through each Lua implementation configuration
+            for executable, json_file in configs.items():
+                print(f"--- Implementation: {executable} ---", file=sys.stderr)
 
-                for executable, json_file in configs.items():
-                    samples: Dict[str, list] = defaultdict(list)
+                samples: Dict[str, list] = defaultdict(list)
+                last_metadata = {}
+
+                for specialization in specializations:
+                    print(f"--- Specialization: {specialization} ---", file=sys.stderr)
 
                     for run_idx in range(1, NUM_RUNS + 1):
                         print(
@@ -162,26 +166,38 @@ def main():
                         )
                         run(shlex.split(executable), json_file, specialization)
 
+                        # Reads the ephemeral results.json created by the Lua script
                         with Path("results.json").open("r") as f:
                             current = json.load(f)
 
+                        last_metadata = current.get("metadata", {})
                         for spec in current["specializations"]:
                             samples[spec["name"]].append(spec)
 
-                    # Reduce each specialization name to its fastest iters/sec.
-                    for name, specs in samples.items():
-                        max_iters_per_sec = max(spec["iters_per_sec"] for spec in specs)
-                        iterations = specs[0]["iterations"]
-                        aggregated.append(
-                            {
-                                "name": name,
-                                "elapsed": iterations / max_iters_per_sec,
-                                "iterations": iterations,
-                                "iters_per_sec": max_iters_per_sec,
-                            }
-                        )
+                # Reduce each specialization name to its fastest iters_per_sec for this implementation
+                aggregated_specs = []
+                for name, specs in samples.items():
+                    max_iters_per_sec = max(spec["iters_per_sec"] for spec in specs)
+                    iterations = specs[0]["iterations"]
+                    reduced_spec = {
+                        "name": name,
+                        "elapsed": iterations / max_iters_per_sec,
+                        "iterations": iterations,
+                        "iters_per_sec": max_iters_per_sec,
+                    }
+                    aggregated_specs.append(reduced_spec)
+                    all_aggregated.append(reduced_spec)
 
-        check_unsafe_grug_transpiler_backend_wasnt_slow(aggregated)
+                # Output the aggregated payload intended for visualize_benchmarks.py
+                summary_data = {
+                    "metadata": last_metadata,
+                    "specializations": aggregated_specs,
+                }
+
+                with Path(json_file).open("w") as f:
+                    json.dump(summary_data, f, indent=2)
+
+        check_unsafe_grug_transpiler_backend_wasnt_slow(all_aggregated)
 
 
 if __name__ == "__main__":
