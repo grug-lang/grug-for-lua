@@ -2407,17 +2407,6 @@ end
 --
 local GrugEntity = {}
 
--- Callable proxy: looks up an on_ function key, defers execution to the backend.
--- Stored in a module-level cache so we never allocate a closure per call.
-local _on_fn_proxy_mt = {
-	-- entity.state.backend:call_on_function is responsible for the pcall,
-	-- flow-error propagation, and GAME_FN_ERROR handling.
-	__call = function(t, entity, ...)
-		entity.state.backend:call_on_function(entity, t._key, ...)
-	end,
-}
-local _on_fn_proxy_cache = {}
-
 function GrugEntity:__index(key) -- luacheck: ignore
 	local val = rawget(GrugEntity, key)
 	if val ~= nil then
@@ -2425,12 +2414,9 @@ function GrugEntity:__index(key) -- luacheck: ignore
 	end
 
 	if type(key) == "string" and string.sub(key, 1, 3) == "on_" then
-		local proxy = _on_fn_proxy_cache[key]
-		if proxy == nil then
-			proxy = setmetatable({ _key = key }, _on_fn_proxy_mt)
-			_on_fn_proxy_cache[key] = proxy
-		end
-		return proxy
+		local fn = self.state.backend:get_on_fn(self, key)
+		rawset(self, key, fn)  -- cache: future accesses hit the table directly, no __index
+		return fn
 	end
 end
 
@@ -2886,6 +2872,13 @@ local loader = loadstring or load
 
 -- Populate entity.data with a fresh chunk execution (its own `e` upvalue closure).
 function TranspilerBackend:init_entity(entity) -- luacheck: ignore
+	-- Evict any rawset-cached on_ functions so new hot reloaded versions are used
+	for k in pairs(entity) do
+		if type(k) == "string" and k:sub(1, 3) == "on_" then
+			rawset(entity, k, nil)
+		end
+	end
+
 	local code = entity.file._transpiled_code
 
 	-- Dump transpiled source to disk before loading, if requested.
@@ -2953,6 +2946,19 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	end
 
 	entity.data = chunk
+end
+
+function TranspilerBackend:get_on_fn(entity, key) -- luacheck: ignore
+	local fn = entity.data[key]
+	if not entity.state.safe_mode then
+		return function(_self, ...)
+			return fn(...)
+		end
+	else
+		return function(_self, ...)
+			entity.state.backend:call_on_function(entity, key, ...)
+		end
+	end
 end
 
 -- Execute the named on_ function on the entity.

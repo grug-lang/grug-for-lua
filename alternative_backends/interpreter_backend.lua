@@ -592,6 +592,22 @@ function InterpreterBackend:init_entity(entity) -- luacheck: ignore
 	entity.data = _InterpreterEntity.new(entity)
 end
 
+-- Retrieve a callable closure for a specific on_ function.
+-- If safe mode is disabled, this bypasses error-handling overhead by invoking
+-- the internal AST runner directly. Otherwise, it routes through call_on_function
+-- to ensure pcalls and runtime error handlers are properly applied.
+function InterpreterBackend:get_on_fn(entity, key) -- luacheck: ignore
+	if not entity.state.safe_mode then
+		return function(_self, ...)
+			entity.data:_run_on_fn(key, ...)
+		end
+	else
+		return function(_self, ...)
+			entity.state.backend:call_on_function(entity, key, ...)
+		end
+	end
+end
+
 -- Execute `on_fn_name` on `entity` with the given arguments.
 function InterpreterBackend:call_on_function(entity, on_fn_name, ...) -- luacheck: ignore
 	local interp = entity.data

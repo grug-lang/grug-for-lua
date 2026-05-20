@@ -426,6 +426,13 @@ local loader = loadstring or load
 
 -- Populate entity.data with a fresh chunk execution (its own `e` upvalue closure).
 function TranspilerBackend:init_entity(entity) -- luacheck: ignore
+	-- Evict any rawset-cached on_ functions so new hot reloaded versions are used
+	for k in pairs(entity) do
+		if type(k) == "string" and k:sub(1, 3) == "on_" then
+			rawset(entity, k, nil)
+		end
+	end
+
 	local code = entity.file._transpiled_code
 
 	-- Dump transpiled source to disk before loading, if requested.
@@ -493,6 +500,19 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	end
 
 	entity.data = chunk
+end
+
+function TranspilerBackend:get_on_fn(entity, key) -- luacheck: ignore
+	local fn = entity.data[key]
+	if not entity.state.safe_mode then
+		return function(_self, ...)
+			return fn(...)
+		end
+	else
+		return function(_self, ...)
+			entity.state.backend:call_on_function(entity, key, ...)
+		end
+	end
 end
 
 -- Execute the named on_ function on the entity.

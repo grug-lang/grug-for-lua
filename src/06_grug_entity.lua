@@ -5,17 +5,6 @@
 --
 local GrugEntity = {}
 
--- Callable proxy: looks up an on_ function key, defers execution to the backend.
--- Stored in a module-level cache so we never allocate a closure per call.
-local _on_fn_proxy_mt = {
-	-- entity.state.backend:call_on_function is responsible for the pcall,
-	-- flow-error propagation, and GAME_FN_ERROR handling.
-	__call = function(t, entity, ...)
-		entity.state.backend:call_on_function(entity, t._key, ...)
-	end,
-}
-local _on_fn_proxy_cache = {}
-
 function GrugEntity:__index(key) -- luacheck: ignore
 	local val = rawget(GrugEntity, key)
 	if val ~= nil then
@@ -23,12 +12,9 @@ function GrugEntity:__index(key) -- luacheck: ignore
 	end
 
 	if type(key) == "string" and string.sub(key, 1, 3) == "on_" then
-		local proxy = _on_fn_proxy_cache[key]
-		if proxy == nil then
-			proxy = setmetatable({ _key = key }, _on_fn_proxy_mt)
-			_on_fn_proxy_cache[key] = proxy
-		end
-		return proxy
+		local fn = self.state.backend:get_on_fn(self, key)
+		rawset(self, key, fn)  -- cache: future accesses hit the table directly, no __index
+		return fn
 	end
 end
 
