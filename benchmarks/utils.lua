@@ -7,7 +7,6 @@ local json = require("json")
 -- Settings
 local path = "results.json"
 local measured_seconds = 1
-local runs = 10
 
 local utils = {}
 
@@ -70,55 +69,24 @@ function utils.benchmark(name, fn, entity)
 	local warmup_time = clock() - warmup_start
 	utils.log("Warming up took " .. string.format("%.4f", warmup_time) .. "s")
 
-	utils.log("Measuring " .. runs .. " runs of " .. run_size .. " iterations each...")
+	utils.log("Measuring " .. run_size .. " iterations...")
 
-	-- 3. Collect a time sample per run, then derive the median.
-	local elapsed_times = {}
+	-- TODO: Check what difference adding this makes
+	-- collectgarbage("collect") -- normalize GC state before the measured run
 
-	for run = 1, runs do
-		utils.log("Run " .. run .. "/" .. runs .. "...")
-
-		collectgarbage("collect") -- normalize GC state between runs
-
-		local start = clock()
-		for _ = 1, run_size do
-			fn(entity)
-		end
-		local elapsed = clock() - start
-
-		utils.log("Elapsed: " .. string.format("%.4f", elapsed) .. "s")
-		table.insert(elapsed_times, elapsed)
+	local start = clock()
+	for _ = 1, run_size do
+		fn(entity)
 	end
+	local elapsed = clock() - start
 
-	-- 4. Sort and take the median (robust against lucky/unlucky outliers).
-	table.sort(elapsed_times)
-	local median_elapsed = elapsed_times[math.ceil(#elapsed_times / 2)]
-
-	-- 5. Compute the coefficient of variation (stddev / mean), so high-noise runs are visible.
-	local mean = 0
-	for _, t in ipairs(elapsed_times) do
-		mean = mean + t
-	end
-	mean = mean / #elapsed_times
-
-	local variance = 0
-	for _, t in ipairs(elapsed_times) do
-		variance = variance + (t - mean) ^ 2
-	end
-	variance = variance / #elapsed_times
-	local cv = math.sqrt(variance) / mean * 100
-
-	if cv > 2 then
-		utils.log(string.format("  WARNING: high variance (CV=%.1f%%) — results may be unreliable", cv))
-	else
-		utils.log(string.format("  Variance OK (CV=%.1f%%)", cv))
-	end
+	utils.log("Elapsed: " .. string.format("%.4f", elapsed) .. "s")
 
 	table.insert(specializations, {
 		name = name,
-		elapsed = median_elapsed,
+		elapsed = elapsed,
 		iterations = run_size,
-		iters_per_sec = run_size / median_elapsed,
+		iters_per_sec = run_size / elapsed,
 	})
 
 	utils.log("--- Finished benchmarking " .. name .. " ---")

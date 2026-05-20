@@ -6,6 +6,7 @@ import os
 import shlex
 import subprocess
 import sys
+from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List
@@ -17,6 +18,8 @@ SPECIALIZATIONS = [
     "unsafe grug interpreter backend",
     "unsafe lua reference",
 ]
+
+NUM_RUNS = 10
 
 
 @contextmanager
@@ -142,7 +145,7 @@ def main():
     for d in dirs:
         print(f"=== Running benchmark {d.name}/ ===", file=sys.stderr)
 
-        # Accumulates all specializations for this benchmark.
+        # Accumulates results for all specializations in this benchmark.
         aggregated = []
 
         with change_dir(d):
@@ -150,13 +153,33 @@ def main():
                 print(f"--- Specialization: {specialization} ---", file=sys.stderr)
 
                 for executable, json_file in configs.items():
-                    run(shlex.split(executable), json_file, specialization)
+                    samples: Dict[str, list] = defaultdict(list)
 
-                    # Load results after each run.
-                    with Path("results.json").open("r") as f:
-                        current = json.load(f)
+                    for run_idx in range(1, NUM_RUNS + 1):
+                        print(
+                            f"  Run {run_idx}/{NUM_RUNS} ({executable})...",
+                            file=sys.stderr,
+                        )
+                        run(shlex.split(executable), json_file, specialization)
 
-                    aggregated.extend(current["specializations"])
+                        with Path("results.json").open("r") as f:
+                            current = json.load(f)
+
+                        for spec in current["specializations"]:
+                            samples[spec["name"]].append(spec)
+
+                    # Reduce each specialization name to its fastest iters/sec.
+                    for name, specs in samples.items():
+                        max_iters_per_sec = max(spec["iters_per_sec"] for spec in specs)
+                        iterations = specs[0]["iterations"]
+                        aggregated.append(
+                            {
+                                "name": name,
+                                "elapsed": iterations / max_iters_per_sec,
+                                "iterations": iterations,
+                                "iters_per_sec": max_iters_per_sec,
+                            }
+                        )
 
         check_unsafe_grug_transpiler_backend_wasnt_slow(aggregated)
 
