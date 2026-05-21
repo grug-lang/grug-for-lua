@@ -5,21 +5,18 @@
 -- crashing with an opaque error.
 local ffi
 do
-    local ok, result = pcall(require, "ffi") -- LuaJIT built-in
-    if ok then
-        ffi = result
-    else
-        ok, result = pcall(require, "cffi") -- cffi-lua for standard Lua
-        if ok then
-            ffi = result
-        else
-            io.stderr:write(
-                "No FFI library available (tried 'ffi' and 'cffi'). "
-                .. "Skipping native tests on this runtime.\n"
-            )
-            os.exit(0)
-        end
-    end
+	local ok, result = pcall(require, "ffi") -- LuaJIT built-in
+	if ok then
+		ffi = result
+	else
+		ok, result = pcall(require, "cffi") -- cffi-lua for standard Lua
+		if ok then
+			ffi = result
+		else
+			io.stderr:write('Error: require("ffi") and require("cffi") both returned nil.\n')
+			os.exit(1)
+		end
+	end
 end
 
 local grug = require("grug")
