@@ -381,8 +381,7 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 	print("compile_grug_file()") -- TODO: REMOVE!
 	local file_path = ffi.string(file_path_)
 
-	local state = states[to_uintptr(state_ptr_)]
-	assert(state)
+	local state = assert(states[to_uintptr(state_ptr_)])
 
 	local file
 	local ok, err = pcall(function()
@@ -425,8 +424,7 @@ end
 
 function callbacks.create_entity(state_ptr_, file_id_, error_out_)
 	print("create_entity") -- TODO: REMOVE!
-	local state = states[to_uintptr(state_ptr_)]
-	assert(state)
+	local state = assert(states[to_uintptr(state_ptr_)])
 
 	grug_runtime_err = nil
 
@@ -472,8 +470,7 @@ end
 
 function callbacks.update(state_ptr_, error_out_)
 	print("update()") -- TODO: REMOVE!
-	local state = states[to_uintptr(state_ptr_)]
-	assert(state)
+	local state = assert(states[to_uintptr(state_ptr_)])
 
 	local file
 	local ok, err = pcall(function()
