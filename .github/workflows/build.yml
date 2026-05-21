@@ -30,6 +30,14 @@ jobs:
 
           sudo luarocks install luacheck
 
+          # cffi-lua provides the same FFI API as LuaJIT for standard Lua interpreters
+          # TODO: Use this instead?
+          # if [ "${{ matrix.lua }}" != "luajit" ] && \
+          #   [ "${{ matrix.lua }}" != "luaj-jse-2.0.3" ]; then
+          if [ "${{ matrix.lua }}" != "luajit" ]; then
+            sudo luarocks install cffi-lua
+          fi
+
           if [ "${{ matrix.lua }}" = "luajit" ]; then
             sudo apt-get install -y luajit libluajit-5.1-dev
             echo "LUA_CMD=luajit" >> $GITHUB_ENV
@@ -97,7 +105,6 @@ jobs:
           fi
 
       - name: Run tests
-        if: matrix.lua == 'luajit'
         run: $LUA_CMD tests.lua "" ./grug-tests
 
       - name: Run all Lua examples

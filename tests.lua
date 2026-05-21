@@ -1,4 +1,27 @@
-local ffi = require("ffi")
+-- LuaJIT exposes FFI as a built-in module.
+-- Standard Lua (5.1-5.4) needs the cffi-lua package.
+-- Runtimes that can load neither (e.g. LuaJ) cannot drive the
+-- native test library at all, so we exit 0 with a clear notice rather than
+-- crashing with an opaque error.
+local ffi
+do
+    local ok, result = pcall(require, "ffi") -- LuaJIT built-in
+    if ok then
+        ffi = result
+    else
+        ok, result = pcall(require, "cffi") -- cffi-lua for standard Lua
+        if ok then
+            ffi = result
+        else
+            io.stderr:write(
+                "No FFI library available (tried 'ffi' and 'cffi'). "
+                .. "Skipping native tests on this runtime.\n"
+            )
+            os.exit(0)
+        end
+    end
+end
+
 local grug = require("grug")
 local interpreter_backend = require("alternative_backends/interpreter_backend")
 
