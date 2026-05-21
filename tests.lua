@@ -261,14 +261,10 @@ local function register_fn(state, name)
 	local return_type = state.mod_api.game_functions[name].return_type
 
 	state:register(name, function(st, ...) -- luacheck: ignore
-		print("calling game fn " .. name) -- TODO: REMOVE!
 		local args = { ... }
 		local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
 
 		for i, v in ipairs(args) do
-			if type(v) == "table" then -- TODO: REMOVE!
-				for x, y in pairs(v) do print(x, y) end -- TODO: REMOVE!
-			end
 			local setter = LUA_TO_C_ARG[type(v)]
 			if not setter then
 				error("Unsupported argument type: " .. type(v))
@@ -349,7 +345,6 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 	end)
 
 	if not ok then
-		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		print_traceback(err)
 		return nil
 	end
@@ -357,14 +352,11 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 	register_fns(state)
 
 	local state_id = #states + 1
-	print("Setting state_id " .. tostring(state_id) .. " to " .. tostring(state)) -- TODO: REMOVE!
 	states[state_id] = state
 	return ffi.cast("void*", state_id)
 end
 
 function callbacks.destroy_grug_state(state_ptr_)
-	print("destroy_grug_state()") -- TODO: REMOVE!
-	print("Clearing state_id " .. tostring(state_id)) -- TODO: REMOVE!
 	states[to_uintptr(state_ptr_)] = nil
 end
 
@@ -379,7 +371,6 @@ local function get_msg_from_lua_error(err)
 end
 
 function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
-	print("compile_grug_file()") -- TODO: REMOVE!
 	local file_path = ffi.string(file_path_)
 
 	local state = assert(states[to_uintptr(state_ptr_)])
@@ -395,7 +386,6 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 	end)
 
 	if not ok then
-		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		err = get_msg_from_lua_error(err)
 		error_out_[0] = get_c_error_string(err)
 		return nil
@@ -409,7 +399,6 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 end
 
 function callbacks.destroy_grug_file(_state_ptr_, file_id_)
-	print("destroy_grug_file") -- TODO: REMOVE!
 	local file_id = to_uintptr(file_id_)
 
 	-- Asserts that file.entities has weak keys
@@ -424,7 +413,6 @@ function callbacks.destroy_grug_file(_state_ptr_, file_id_)
 end
 
 function callbacks.create_entity(state_ptr_, file_id_, error_out_)
-	print("create_entity") -- TODO: REMOVE!
 	local state = assert(states[to_uintptr(state_ptr_)])
 
 	grug_runtime_err = nil
@@ -439,7 +427,6 @@ function callbacks.create_entity(state_ptr_, file_id_, error_out_)
 	end)
 
 	if not ok then
-		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		local err_type = type(err) == "table" and err.type
 		if
 			err_type == "STACK_OVERFLOW"
@@ -465,12 +452,10 @@ function callbacks.create_entity(state_ptr_, file_id_, error_out_)
 end
 
 function callbacks.destroy_entity(_state_ptr_, entity_id_)
-	print("destroy_entity()") -- TODO: REMOVE!
 	entities[to_uintptr(entity_id_)] = nil
 end
 
 function callbacks.update(state_ptr_, error_out_)
-	print("update()") -- TODO: REMOVE!
 	local state = assert(states[to_uintptr(state_ptr_)])
 
 	local file
@@ -479,7 +464,6 @@ function callbacks.update(state_ptr_, error_out_)
 	end)
 
 	if not ok then
-		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		err = get_msg_from_lua_error(err)
 		error_out_[0] = get_c_error_string(err)
 		return
@@ -498,7 +482,6 @@ local unpacker = unpack or table.unpack
 
 function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_len_)
 	local fn_name = ffi.string(fn_name_)
-	print("call_export_fn for " .. fn_name) -- TODO: REMOVE!
 	local args_len = to_uintptr(args_len_)
 
 	grug_runtime_err = nil
@@ -522,7 +505,6 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 	end)
 
 	if not ok then
-		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		local err_type = type(err) == "table" and err.type
 		if
 			err_type == "STACK_OVERFLOW"
