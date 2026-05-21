@@ -7,10 +7,12 @@ local ffi
 do
     local ok, result = pcall(require, "ffi") -- LuaJIT built-in
     if ok then
+		print("Using ffi") -- TODO: REMOVE!
         ffi = result
     else
         ok, result = pcall(require, "cffi") -- cffi-lua for standard Lua
         if ok then
+			print("Using cffi") -- TODO: REMOVE!
             ffi = result
         else
             io.stderr:write(
