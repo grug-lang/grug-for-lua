@@ -7,12 +7,10 @@ local ffi
 do
     local ok, result = pcall(require, "ffi") -- LuaJIT built-in
     if ok then
-		print("Using ffi"); io.flush() -- TODO: REMOVE!
         ffi = result
     else
         ok, result = pcall(require, "cffi") -- cffi-lua for standard Lua
         if ok then
-			print("Using cffi"); io.flush() -- TODO: REMOVE!
             ffi = result
         else
             io.stderr:write(
@@ -180,6 +178,17 @@ local function custom_runtime_error_handler(reason, grug_runtime_error_type, on_
 	grug_lib.grug_tests_runtime_error_handler(reason, err, on_fn_name, on_fn_path)
 end
 
+-- Convert to string and extract only the numeric digits.
+-- This works around a cffi bug with ffi.cast("uintptr_t", state_ptr_)
+-- where it appends '\0', which caused tonumber() to always return nil.
+local function cdata_to_number(v)
+	return assert(tonumber(tostring(v):match("%d+")))
+end
+
+local function to_uintptr(state_ptr_)
+	return cdata_to_number(ffi.cast("uintptr_t", state_ptr_))
+end
+
 local function c_to_lua_value(value, typ)
 	if typ == "number" then
 		return tonumber(value._number)
@@ -188,7 +197,26 @@ local function c_to_lua_value(value, typ)
 	elseif typ == "string" then
 		return ffi.string(value._string)
 	end
-	return { __grug_type = "id", value = tonumber(value._id) }
+	return { __grug_type = "id", value = cdata_to_number(value._id) }
+end
+
+-- LuaJIT's ffi null-terminates ffi.copy(dst, src):
+-- > All bytes of the string plus a zero-terminator
+-- > are copied to dst (i.e. #str+1 bytes).
+-- Source: https://luajit.org/ext_ffi_api.html#ffi_copy
+--
+-- This copy_str() function exists because I have observed
+-- that cffi does *not* add the null-terminator. :(
+local function copy_str(buf, str)
+	local str_len = #str
+	ffi.copy(buf, str, str_len)
+	buf[str_len] = 0
+end
+
+local function string_buf(str)
+	local buf = ffi.new("char[?]", #str + 1)
+	copy_str(buf, str)
+	return buf
 end
 
 local LUA_TO_C_ARG = {
@@ -203,9 +231,7 @@ local LUA_TO_C_ARG = {
 		c_arg._bool = v
 	end,
 	string = function(c_arg, v)
-		local b = ffi.new("char[?]", #v + 1)
-		ffi.copy(b, v)
-		c_arg._string = b
+		c_arg._string = string_buf(v)
 	end,
 }
 
@@ -235,10 +261,14 @@ local function register_fn(state, name)
 	local return_type = state.mod_api.game_functions[name].return_type
 
 	state:register(name, function(st, ...) -- luacheck: ignore
+		print("calling game fn " .. name) -- TODO: REMOVE!
 		local args = { ... }
 		local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
 
 		for i, v in ipairs(args) do
+			if type(v) == "table" then -- TODO: REMOVE!
+				for x, y in pairs(v) do print(x, y) end -- TODO: REMOVE!
+			end
 			local setter = LUA_TO_C_ARG[type(v)]
 			if not setter then
 				error("Unsupported argument type: " .. type(v))
@@ -258,7 +288,7 @@ local function register_fn(state, name)
 		tmp[0] = result_u64
 
 		local union = ffi.new("GrugValueUnion")
-		ffi.copy(union, tmp, ffi.sizeof("GrugValueUnion"))
+		ffi.copy(ffi.cast("void*", union), tmp, ffi.sizeof("GrugValueUnion"))
 
 		return c_to_lua_value(union, return_type)
 	end)
@@ -318,6 +348,7 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 	end)
 
 	if not ok then
+		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		print_traceback(err)
 		return nil
 	end
@@ -325,19 +356,19 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 	register_fns(state)
 
 	local state_id = #states + 1
+	print("Setting state_id " .. tostring(state_id) .. " to " .. tostring(state)) -- TODO: REMOVE!
 	states[state_id] = state
 	return ffi.cast("void*", state_id)
 end
 
 function callbacks.destroy_grug_state(state_ptr_)
-	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
-	states[state_ptr] = nil
+	print("destroy_grug_state()") -- TODO: REMOVE!
+	print("Clearing state_id " .. tostring(state_id)) -- TODO: REMOVE!
+	states[to_uintptr(state_ptr_)] = nil
 end
 
 local function get_c_error_string(err)
-	last_error = ffi.new("char[?]", #err + 1)
-	ffi.copy(last_error, err)
-	return last_error
+	return string_buf(err)
 end
 
 -- Turns `./grug.lua:731: Expected token` into `Expected token`.
@@ -347,10 +378,11 @@ local function get_msg_from_lua_error(err)
 end
 
 function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
-	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
+	print("compile_grug_file()") -- TODO: REMOVE!
 	local file_path = ffi.string(file_path_)
 
-	local state = states[state_ptr]
+	local state = states[to_uintptr(state_ptr_)]
+	assert(state)
 
 	local file
 	local ok, err = pcall(function()
@@ -363,6 +395,7 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 	end)
 
 	if not ok then
+		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		err = get_msg_from_lua_error(err)
 		error_out_[0] = get_c_error_string(err)
 		return nil
@@ -376,7 +409,8 @@ function callbacks.compile_grug_file(state_ptr_, file_path_, error_out_)
 end
 
 function callbacks.destroy_grug_file(_state_ptr_, file_id_)
-	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
+	print("destroy_grug_file") -- TODO: REMOVE!
+	local file_id = to_uintptr(file_id_)
 
 	-- Asserts that file.entities has weak keys
 	collectgarbage()
@@ -390,16 +424,15 @@ function callbacks.destroy_grug_file(_state_ptr_, file_id_)
 end
 
 function callbacks.create_entity(state_ptr_, file_id_, error_out_)
-	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
-	local file_id = tonumber(ffi.cast("uintptr_t", file_id_))
-
-	local state = states[state_ptr]
+	print("create_entity") -- TODO: REMOVE!
+	local state = states[to_uintptr(state_ptr_)]
+	assert(state)
 
 	grug_runtime_err = nil
 
 	state.next_id = 42
 
-	local file = files[file_id]
+	local file = files[to_uintptr(file_id_)]
 
 	local entity
 	local ok, err = pcall(function()
@@ -407,6 +440,7 @@ function callbacks.create_entity(state_ptr_, file_id_, error_out_)
 	end)
 
 	if not ok then
+		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		local err_type = type(err) == "table" and err.type
 		if
 			err_type == "STACK_OVERFLOW"
@@ -432,13 +466,14 @@ function callbacks.create_entity(state_ptr_, file_id_, error_out_)
 end
 
 function callbacks.destroy_entity(_state_ptr_, entity_id_)
-	local entity_id = tonumber(ffi.cast("uintptr_t", entity_id_))
-	entities[entity_id] = nil
+	print("destroy_entity()") -- TODO: REMOVE!
+	entities[to_uintptr(entity_id_)] = nil
 end
 
 function callbacks.update(state_ptr_, error_out_)
-	local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
-	local state = states[state_ptr]
+	print("update()") -- TODO: REMOVE!
+	local state = states[to_uintptr(state_ptr_)]
+	assert(state)
 
 	local file
 	local ok, err = pcall(function()
@@ -446,6 +481,7 @@ function callbacks.update(state_ptr_, error_out_)
 	end)
 
 	if not ok then
+		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		err = get_msg_from_lua_error(err)
 		error_out_[0] = get_c_error_string(err)
 		return
@@ -459,14 +495,17 @@ function callbacks.update(state_ptr_, error_out_)
 	error_out_[0] = nil
 end
 
+-- LuaJIT only has unpack(), whereas Lua 5.1 only has table.unpack()
+local unpacker = unpack or table.unpack
+
 function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_len_)
-	local entity_id = tonumber(ffi.cast("uintptr_t", entity_id_))
 	local fn_name = ffi.string(fn_name_)
-	local args_len = tonumber(ffi.cast("uintptr_t", args_len_))
+	print("call_export_fn for " .. fn_name) -- TODO: REMOVE!
+	local args_len = to_uintptr(args_len_)
 
 	grug_runtime_err = nil
 
-	local entity = entities[entity_id]
+	local entity = entities[to_uintptr(entity_id_)]
 
 	local file = entity.file
 
@@ -481,10 +520,11 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 
 	local ok, err = pcall(function()
 		local on_fn = entity[fn_name]
-		on_fn(entity, unpack(lua_args))
+		on_fn(entity, unpacker(lua_args))
 	end)
 
 	if not ok then
+		print("err: " .. tostring(err)) -- TODO: REMOVE!
 		local err_type = type(err) == "table" and err.type
 		if
 			err_type == "STACK_OVERFLOW"
@@ -501,8 +541,7 @@ end
 
 local function make_io_callback(method)
 	return function(state_ptr_, input_buffer_, output_buffer_, output_buffer_len)
-		local state_ptr = tonumber(ffi.cast("uintptr_t", state_ptr_))
-		local state = states[state_ptr]
+		local state = assert(states[to_uintptr(state_ptr_)])
 
 		local input_text = ffi.string(input_buffer_)
 		local ok, result = pcall(state[method], state, input_text)
@@ -511,20 +550,23 @@ local function make_io_callback(method)
 			return true
 		end
 
-		-- +1 for the null terminator that ffi.copy appends
-		if #result + 1 > output_buffer_len then
+		assert(type(result) == "string")
+		local result_len = #result
+
+		-- Check if we have space for result + null terminator
+		if result_len + 1 > output_buffer_len then
 			print_traceback(
 				string.format(
 					"%s: output buffer too small (need %d bytes, have %d)",
 					method,
-					#result + 1,
+					result_len + 1,
 					output_buffer_len
 				)
 			)
 			return true
 		end
 
-		ffi.copy(output_buffer_, result)
+		copy_str(output_buffer_, result)
 		return false
 	end
 end
@@ -535,20 +577,36 @@ callbacks.json_to_grug = make_io_callback("json_to_grug")
 function callbacks.game_fn_error(_state_ptr_, reason_)
 	game_fn_error_reason = ffi.string(reason_)
 end
+	
+-- Create a table to anchor the C callback closures
+local vtable_anchors = {
+	create_grug_state = ffi.cast("void* (*)(const char*, const char*, bool)", callbacks.create_grug_state),
+	destroy_grug_state = ffi.cast("void (*)(void*)", callbacks.destroy_grug_state),
+	compile_grug_file = ffi.cast("void* (*)(void*, const char*, const char**)", callbacks.compile_grug_file),
+	destroy_grug_file = ffi.cast("void (*)(void*, void*)", callbacks.destroy_grug_file),
+	create_entity = ffi.cast("void* (*)(void*, void*, const char**)", callbacks.create_entity),
+	destroy_entity = ffi.cast("void (*)(void*, void*)", callbacks.destroy_entity),
+	update = ffi.cast("void (*)(void*, const char**)", callbacks.update),
+	call_export_fn = ffi.cast("void (*)(void*, void*, const char*, GrugValueUnion*, size_t)", callbacks.call_export_fn),
+	grug_to_json = ffi.cast("bool (*)(void*, const char*, char*, size_t)", callbacks.grug_to_json),
+	json_to_grug = ffi.cast("bool (*)(void*, const char*, char*, size_t)", callbacks.json_to_grug),
+	game_fn_error = ffi.cast("void (*)(void*, const char*)", callbacks.game_fn_error),
+}
 
-local vtable = ffi.new("grug_state_vtable", {
-	create_grug_state = callbacks.create_grug_state,
-	destroy_grug_state = callbacks.destroy_grug_state,
-	compile_grug_file = callbacks.compile_grug_file,
-	destroy_grug_file = callbacks.destroy_grug_file,
-	create_entity = callbacks.create_entity,
-	destroy_entity = callbacks.destroy_entity,
-	update = callbacks.update,
-	call_export_fn = callbacks.call_export_fn,
-	grug_to_json = callbacks.grug_to_json,
-	json_to_grug = callbacks.json_to_grug,
-	game_fn_error = callbacks.game_fn_error,
-})
+local vtable = ffi.new("grug_state_vtable")
+
+-- Assign the anchored closures to the struct
+vtable.create_grug_state = vtable_anchors.create_grug_state
+vtable.destroy_grug_state = vtable_anchors.destroy_grug_state
+vtable.compile_grug_file = vtable_anchors.compile_grug_file
+vtable.destroy_grug_file = vtable_anchors.destroy_grug_file
+vtable.create_entity = vtable_anchors.create_entity
+vtable.destroy_entity = vtable_anchors.destroy_entity
+vtable.update = vtable_anchors.update
+vtable.call_export_fn = vtable_anchors.call_export_fn
+vtable.grug_to_json = vtable_anchors.grug_to_json
+vtable.json_to_grug = vtable_anchors.json_to_grug
+vtable.game_fn_error = vtable_anchors.game_fn_error
 
 local function reset_state()
 	states = {}
