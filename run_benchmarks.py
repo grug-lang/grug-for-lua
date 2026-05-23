@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import Dict, List
 
 SPECIALIZATIONS = [
-    "safe grug transpiler backend",
-    "unsafe grug transpiler backend",
-    "safe grug interpreter backend",
-    "unsafe grug interpreter backend",
     "unsafe lua reference",
+    "unsafe grug transpiler backend",
+    "safe grug transpiler backend",
+    "unsafe grug interpreter backend",
+    "safe grug interpreter backend",
 ]
 
 NUM_RUNS = 10

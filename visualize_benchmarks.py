@@ -15,6 +15,14 @@ import seaborn as sns  # pyright: ignore[reportMissingModuleSource]
 
 sns.set_theme(style="whitegrid")
 
+SPECIALIZATIONS = [
+    "unsafe lua reference",
+    "unsafe grug transpiler backend",
+    "safe grug transpiler backend",
+    "unsafe grug interpreter backend",
+    "safe grug interpreter backend",
+]
+
 
 def load_results(directory: Path) -> List[Dict[str, Any]]:
     # Ignore both the temporary 'results.json' and 'mod_api.json'
@@ -73,7 +81,8 @@ def main() -> None:
 
         df = build_dataframe(records)
 
-        spec_order = sorted(df["specialization"].unique())  # type: ignore
+        present = set(df["specialization"].unique())  # type: ignore
+        spec_order = [s for s in SPECIALIZATIONS if s in present]
 
         fig_width = 10
         fig_height = len(spec_order) * 1.3
