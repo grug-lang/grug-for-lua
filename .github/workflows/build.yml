@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         lua:
-          # - luajit
+          # - luajit # TODO: Put back!
           - lua5.1
           - lua5.2
           - lua5.3
@@ -26,41 +26,32 @@ jobs:
       - name: Install Lua and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential luarocks curl
+          sudo apt-get install -y cmake build-essential luarocks curl meson ninja-build
 
           sudo luarocks install luacheck
-
-          # cffi-lua provides the same FFI API as LuaJIT for standard Lua interpreters
-          # TODO: Use this instead?
-          # if [ "${{ matrix.lua }}" != "luajit" ] && \
-          #   [ "${{ matrix.lua }}" != "luaj-jse-2.0.3" ]; then
-          if [ "${{ matrix.lua }}" != "luajit" ]; then
-            sudo apt-get install -y meson ninja-build
-            sudo luarocks install cffi-lua
-          fi
 
           if [ "${{ matrix.lua }}" = "luajit" ]; then
             sudo apt-get install -y luajit libluajit-5.1-dev
             echo "LUA_CMD=luajit" >> $GITHUB_ENV
-
           elif [ "${{ matrix.lua }}" = "lua5.1" ]; then
             sudo apt-get install -y lua5.1 liblua5.1-0-dev
+            sudo luarocks --lua-version 5.1 install cffi-lua
             echo "LUA_CMD=lua5.1" >> $GITHUB_ENV
-
           elif [ "${{ matrix.lua }}" = "lua5.2" ]; then
             sudo apt-get install -y lua5.2 liblua5.2-dev
+            sudo luarocks --lua-version 5.2 install cffi-lua
             echo "LUA_CMD=lua5.2" >> $GITHUB_ENV
-
           elif [ "${{ matrix.lua }}" = "lua5.3" ]; then
             sudo apt-get install -y lua5.3 liblua5.3-dev
+            sudo luarocks --lua-version 5.3 install cffi-lua
             echo "LUA_CMD=lua5.3" >> $GITHUB_ENV
-
           elif [ "${{ matrix.lua }}" = "lua5.4" ]; then
             sudo apt-get install -y lua5.4 liblua5.4-dev
+            sudo luarocks --lua-version 5.4 install cffi-lua
             echo "LUA_CMD=lua5.4" >> $GITHUB_ENV
-
           elif [ "${{ matrix.lua }}" = "luaj-jse-2.0.3" ]; then
             sudo apt-get install -y openjdk-17-jre
+            sudo luarocks --lua-version 5.2 install cffi-lua
 
             mkdir -p $HOME/luaj
             curl -L \

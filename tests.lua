@@ -1,15 +1,12 @@
--- LuaJIT exposes FFI as a built-in module.
--- Standard Lua (5.1-5.4) needs the cffi-lua package.
--- Runtimes that can load neither (e.g. LuaJ) cannot drive the
--- native test library at all, so we exit 0 with a clear notice rather than
--- crashing with an opaque error.
 local ffi
 do
-	local ok, result = pcall(require, "ffi") -- LuaJIT built-in
+	-- ffi for LuaJIT
+	local ok, result = pcall(require, "ffi")
 	if ok then
 		ffi = result
 	else
-		ok, result = pcall(require, "cffi") -- cffi-lua for standard Lua
+		-- cffi-lua for standard Lua
+		ok, result = pcall(require, "cffi")
 		if ok then
 			ffi = result
 		else
