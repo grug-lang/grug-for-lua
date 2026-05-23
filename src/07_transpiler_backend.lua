@@ -512,16 +512,23 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	entity.data = chunk
 end
 
+local unsafe_on_fn_mt = {
+	__call = function(t, _self, ...)
+		return t.fn(...)
+	end,
+}
+
+local safe_on_fn_mt = {
+	__call = function(t, self, ...)
+		return self.state.backend:call_on_function(self, t.key, ...)
+	end,
+}
+
 function TranspilerBackend:get_on_fn(entity, key) -- luacheck: ignore
-	local fn = entity.data[key]
 	if not entity.state.safe_mode then
-		return function(_self, ...)
-			return fn(...)
-		end
+		return setmetatable({ fn = entity.data[key] }, unsafe_on_fn_mt)
 	else
-		return function(_self, ...)
-			entity.state.backend:call_on_function(entity, key, ...)
-		end
+		return setmetatable({ key = key }, safe_on_fn_mt)
 	end
 end
 
