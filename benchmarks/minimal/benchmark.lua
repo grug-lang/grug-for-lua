@@ -15,8 +15,6 @@ end
 fns["print_number"] = print_number
 
 local function benchmark(state, name)
-	utils.register_fns(state, fns)
-
 	utils.log("Compiling grug code...")
 	local file = state.mods["mymod"]["incrementer-Benchmark.grug"]
 	local e = file:create_entity()
@@ -28,19 +26,14 @@ end
 
 utils.benchmark_interpreter_and_transpiler({
 	grug_files = { "mymod/incrementer-Benchmark.grug" },
-}, benchmark)
+}, benchmark, fns)
 
-if utils.should_run_lua_reference() then
-	local ref = require("reference")
-
-	ref.init({
-		get_1 = get_1,
-		print_number = print_number,
-	})
-
+local function benchmark_ref(ref, name)
 	local on_inc = ref.on_increment
-	utils.benchmark("unsafe lua reference", on_inc)
+	utils.benchmark(name, on_inc)
 	ref.on_print()
 end
+
+utils.benchmark_safe_and_unsafe_lua_references(fns, benchmark_ref)
 
 utils.save_results()

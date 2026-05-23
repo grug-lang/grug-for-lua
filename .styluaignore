@@ -1,1 +1,1 @@
-benchmarks/**/reference.lua
+benchmarks/**/reference_*.lua

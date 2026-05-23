@@ -19,8 +19,6 @@ end
 fns["assert_equals"] = assert_equals
 
 local function benchmark(state, name)
-	utils.register_fns(state, fns)
-
 	utils.log("Compiling grug code...")
 	local file = state.mods["mymod"]["break_continue-Benchmark.grug"]
 	local e = file:create_entity()
@@ -31,18 +29,13 @@ end
 
 utils.benchmark_interpreter_and_transpiler({
 	grug_files = { "mymod/break_continue-Benchmark.grug" },
-}, benchmark)
+}, benchmark, fns)
 
-if utils.should_run_lua_reference() then
-	local ref = require("reference")
-
-	ref.init({
-		is_odd = is_odd,
-		assert_equals = assert_equals,
-	})
-
+local function benchmark_ref(ref, name)
 	local on_run = ref.on_run
-	utils.benchmark("unsafe lua reference", on_run)
+	utils.benchmark(name, on_run)
 end
+
+utils.benchmark_safe_and_unsafe_lua_references(fns, benchmark_ref)
 
 utils.save_results()

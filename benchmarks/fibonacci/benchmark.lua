@@ -55,8 +55,6 @@ end
 fns["assert_fib"] = assert_fib
 
 local function benchmark(state, name)
-	utils.register_fns(state, fns)
-
 	utils.log("Compiling grug code...")
 	local file = state.mods["mymod"]["fib-Benchmark.grug"]
 	local e = file:create_entity()
@@ -67,23 +65,13 @@ end
 
 utils.benchmark_interpreter_and_transpiler({
 	grug_files = { "mymod/fib-Benchmark.grug" },
-}, benchmark)
+}, benchmark, fns)
 
-if utils.should_run_lua_reference() then
-	local ref = require("reference")
-
-	ref.init({
-		List = List,
-		Dict = Dict,
-		list_append = list_append,
-		dict_has_key = dict_has_key,
-		dict_get = dict_get,
-		dict_set = dict_set,
-		assert_fib = assert_fib,
-	})
-
+local function benchmark_ref(ref, name)
 	local on_run = ref.on_run
-	utils.benchmark("unsafe lua reference", on_run)
+	utils.benchmark(name, on_run)
 end
+
+utils.benchmark_safe_and_unsafe_lua_references(fns, benchmark_ref)
 
 utils.save_results()

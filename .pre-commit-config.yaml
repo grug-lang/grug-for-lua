@@ -25,7 +25,7 @@ repos:
         language: system
         types: [lua]
         pass_filenames: false
-        args: [., --exclude-files, src, examples, 'benchmarks/**/reference.lua']
+        args: [., --exclude-files, src, examples, 'benchmarks/**/reference_*.lua']
 
       - id: forbid-nested-functions
         name: Forbid nested function definitions in Lua files

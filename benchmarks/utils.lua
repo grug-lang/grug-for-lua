@@ -39,7 +39,7 @@ function utils.log(...)
 	io.flush()
 end
 
-function utils.register_fns(state, fns)
+local function register_fns(state, fns)
 	for fn_name, fn in pairs(fns) do
 		state:register(fn_name, fn)
 	end
@@ -111,8 +111,8 @@ local function get_config()
 	error("Unknown specialization: " .. selected_specialization)
 end
 
-function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
-	if selected_specialization == "unsafe lua reference" then
+function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark, fns)
+	if selected_specialization == "unsafe lua reference" or selected_specialization == "safe lua reference" then
 		return
 	end
 
@@ -122,16 +122,25 @@ function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
 	grug_settings.safe_mode = config.safe_mode
 	-- grug_settings.transpiler_dump = true -- Use to debug any NYIs
 	local state = grug.init(grug_settings)
+
+	register_fns(state, fns)
+
 	benchmark(state, config.name)
 
-	-- Verify the output of the unsafe transpiler matches the native reference implementation
+	-- Verify the output of the transpiler matches the native reference implementation
+	local expected_reference_file = nil
 	if config.name == "unsafe grug transpiler backend" then
+		expected_reference_file = "reference_unsafe.lua"
+	elseif config.name == "safe grug transpiler backend" then
+		expected_reference_file = "reference_safe.lua"
+	end
+
+	if expected_reference_file then
 		local generated_lua = state:get_transpiled_code()
 
-		-- Look for reference.lua in the current directory
-		local ref_file = io.open("reference.lua", "r")
+		local ref_file = io.open(expected_reference_file, "r")
 		if not ref_file then
-			error("Could not find or open reference.lua for verification")
+			error("Could not find or open " .. expected_reference_file .. " for verification")
 		end
 		local reference_content = ref_file:read("*a")
 		ref_file:close()
@@ -141,17 +150,27 @@ function utils.benchmark_interpreter_and_transpiler(grug_settings, benchmark)
 			out_file:write(generated_lua)
 			out_file:close()
 			error(
-				"Generated Lua code does not exactly match reference.lua!"
-					.. " Saved output to 'transpiler_output.lua' for diffing."
+				"Generated Lua code does not exactly match "
+					.. expected_reference_file
+					.. "!"
+					.. " Saved output to 'transpiler_output.lua' for diffing"
 			)
 		else
-			print("Unsafe grug transpiler backend successfully generated reference.lua.")
+			print("Successfully generated matching " .. expected_reference_file)
 		end
 	end
 end
 
-function utils.should_run_lua_reference()
-	return selected_specialization == "unsafe lua reference"
+function utils.benchmark_safe_and_unsafe_lua_references(fns, benchmark)
+	if selected_specialization == "unsafe lua reference" then
+		local ref = require("reference_unsafe")
+		ref.init(fns)
+		benchmark(ref, "unsafe lua reference")
+	elseif selected_specialization == "safe lua reference" then
+		local ref = require("reference_safe")
+		ref.init(fns)
+		benchmark(ref, "safe lua reference")
+	end
 end
 
 function utils.save_results()
