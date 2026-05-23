@@ -76,8 +76,6 @@ function utils.benchmark(name, fn, entity)
 
 	utils.log("Measuring " .. total_measured_iterations .. " iterations...")
 
-	-- collectgarbage("collect") -- normalize GC state before the measured run
-
 	local start = clock()
 	for _ = 1, total_measured_iterations do
 		fn(entity)
