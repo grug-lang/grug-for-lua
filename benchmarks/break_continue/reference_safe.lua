@@ -8,6 +8,7 @@ local is_odd
 local fns = {}
 
 local e = {
+	state = nil,
 	me = nil,
 }
 
@@ -19,7 +20,7 @@ function fns.on_run()
 		local _brk = false
 		repeat
 			i = (i + 1)
-			if is_odd(nil, i) then
+			if is_odd(e.state, i) then
 				do break end
 			end
 			sum = (sum + i)
@@ -33,13 +34,14 @@ function fns.on_run()
 			error({ type = "TIME_LIMIT_EXCEEDED", reason = string.format("Took longer than %g milliseconds to run", _time_limit_sec * 1000) }, 0)
 		end
 	end
-	assert_equals(nil, sum, 10100)
+	assert_equals(e.state, sum, 10100)
 end
 
-function fns.init(deps, me_id)
+function fns.init(deps, state, me_id)
 	assert_equals = deps.assert_equals
 	is_odd = deps.is_odd
 	_time_limit_sec = deps._time_limit_sec
+	e.state = state
 	e.me = { __grug_type = "id", value = me_id }
 end
 

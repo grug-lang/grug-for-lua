@@ -2592,7 +2592,7 @@ function Transpiler:emit_expr(expr)
 	return "(" .. self:emit_expr(expr.expr) .. ")"
 end
 
--- Emit a call expression string, routing game-fn calls through `nil` state.
+-- Emit a call expression string, routing game-fn calls through `e.state`.
 function Transpiler:emit_call_expr(expr)
 	local fn_name = expr.fn_name
 	local arg_strs = {}
@@ -2604,8 +2604,8 @@ function Transpiler:emit_call_expr(expr)
 		-- Helper functions live in the fns table.
 		return "fns." .. fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	else
-		-- Game functions receive nil as their first argument (the `_state` slot).
-		table.insert(arg_strs, 1, "nil")
+		-- Game functions receive e.state as their first argument (the `_state` slot).
+		table.insert(arg_strs, 1, "e.state")
 		return fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	end
 end
@@ -2778,6 +2778,7 @@ function Transpiler:generate()
 	--    All fields are initialised to nil here; their real values are set
 	--    inside fns.init once the game-function upvalues have been injected.
 	self:w("local e = {\n")
+	self:w("\tstate = nil,\n")
 	self:w("\tme = nil,\n")
 	for _, g in ipairs(self.file.global_variables) do
 		self:w("\t" .. g.name .. " = nil,\n")
@@ -2813,13 +2814,14 @@ function Transpiler:generate()
 	--    (e.g. `bar = foo` works because e.foo is already set).
 	--    In safe mode, deps._time_limit_sec is also read to populate the
 	--    _time_limit_sec upvalue that while-loop time checks use.
-	self:w("function fns.init(deps, me_id)\n")
+	self:w("function fns.init(deps, state, me_id)\n")
 	for _, name in ipairs(game_fn_names) do
 		self:w("\t" .. name .. " = deps." .. name .. "\n")
 	end
 	if self.safe_mode then
 		self:w("\t_time_limit_sec = deps._time_limit_sec\n")
 	end
+	self:w("\te.state = state\n")
 	self:w('\te.me = { __grug_type = "id", value = me_id }\n')
 	for _, g in ipairs(self.file.global_variables) do
 		self:w("\te." .. g.name .. " = " .. self:emit_expr(g.expr) .. "\n")
@@ -2915,7 +2917,7 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	if entity.state.safe_mode then
 		-- Wrap init in a pcall so that Lua stack overflows or GAME_FN_ERROR
 		-- throws during global-variable initialisation are caught.
-		local ok, init_err = pcall(chunk.init, deps, entity.me_id)
+		local ok, init_err = pcall(chunk.init, deps, entity.state, entity.me_id)
 
 		entity.state._executed_entity = old_executed_entity
 		entity.state._executed_file = old_executed_file
@@ -2935,7 +2937,7 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 			end
 		end
 	else
-		chunk.init(deps, entity.me_id)
+		chunk.init(deps, entity.state, entity.me_id)
 
 		entity.state._executed_entity = old_executed_entity
 		entity.state._executed_file = old_executed_file

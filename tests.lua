@@ -64,36 +64,36 @@ end
 
 -- luacheck: push ignore
 ffi.cdef([[
-    typedef union {
-        double _number;
-        bool _bool;
-        const char *_string;
-        uint64_t _id;
-    } GrugValueUnion;
+	typedef union {
+		double _number;
+		bool _bool;
+		const char *_string;
+		uint64_t _id;
+	} GrugValueUnion;
 
-    typedef struct {
-        void* (*create_grug_state)(const char* mod_api_path, const char* mods_dir_path, bool safe_mode);
-        void (*destroy_grug_state)(void* state_ptr);
-        void* (*compile_grug_file)(void* state_ptr, const char* file_path, const char** error_out);
+	typedef struct {
+		void* (*create_grug_state)(const char* mod_api_path, const char* mods_dir_path, bool safe_mode);
+		void (*destroy_grug_state)(void* state_ptr);
+		void* (*compile_grug_file)(void* state_ptr, const char* file_path, const char** error_out);
 		void (*destroy_grug_file)(void* state_ptr, void* file_id);
 		void* (*create_entity)(void* state_ptr, void* file_id, const char** error_out);
 		void (*destroy_entity)(void* state_ptr, void* entity_id);
 		void (*update)(void* state_ptr, const char** error_out);
-        void (*call_export_fn)(void* state_ptr, void* entity_id, const char* fn_name, GrugValueUnion* args, size_t args_len);
-        bool (*grug_to_json)(void* state_ptr, const char* input_grug_buffer, char* output_json_buffer, size_t output_buffer_len);
-        bool (*json_to_grug)(void* state_ptr, const char* input_json_buffer, char* output_grug_buffer, size_t output_buffer_len);
-        void (*game_fn_error)(void* state_ptr, const char* reason);
-    } grug_state_vtable;
+		void (*call_export_fn)(void* state_ptr, void* entity_id, const char* fn_name, GrugValueUnion* args, size_t args_len);
+		bool (*grug_to_json)(void* state_ptr, const char* input_grug_buffer, char* output_json_buffer, size_t output_buffer_len);
+		bool (*json_to_grug)(void* state_ptr, const char* input_json_buffer, char* output_grug_buffer, size_t output_buffer_len);
+		void (*game_fn_error)(void* state_ptr, const char* reason);
+	} grug_state_vtable;
 
-    enum grug_runtime_error_type {
-        GRUG_ON_FN_STACK_OVERFLOW,
-        GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
-        GRUG_ON_FN_GAME_FN_ERROR,
-    };
+	enum grug_runtime_error_type {
+		GRUG_ON_FN_STACK_OVERFLOW,
+		GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
+		GRUG_ON_FN_GAME_FN_ERROR,
+	};
 
-    void grug_tests_runtime_error_handler(const char *reason, enum grug_runtime_error_type type, const char *on_fn_name, const char *on_fn_path);
+	void grug_tests_runtime_error_handler(const char *reason, enum grug_runtime_error_type type, const char *on_fn_name, const char *on_fn_path);
 
-    void grug_tests_run(const char *tests_dir_path, const char *mod_api_path, grug_state_vtable vtable, const char *whitelisted_test);
+	void grug_tests_run(const char *tests_dir_path, const char *mod_api_path, grug_state_vtable vtable, const char *whitelisted_test);
 ]])
 -- luacheck: pop
 
@@ -113,6 +113,7 @@ local game_fn_names = {
 	"mega_f32",
 	"mega_i32",
 	"draw",
+	"assert_state_is_not_null",
 	"blocked_alrm",
 	"spawn",
 	"spawn_d",
@@ -264,9 +265,9 @@ local function register_fn(state, name)
 			setter(c_args[i - 1], v)
 		end
 
-		local result_u64 = c_fn(nil, c_args)
+		local result_u64 = c_fn(ffi.cast("void*", st.id), c_args)
 
-		_raise_game_fn_error_if_needed(state)
+		_raise_game_fn_error_if_needed(st)
 
 		if grug_runtime_err ~= nil then
 			error(grug_runtime_err)
@@ -341,10 +342,12 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 		return nil
 	end
 
-	register_fns(state)
-
 	local state_id = #states + 1
 	states[state_id] = state
+	state.id = state_id -- Assign ID to the state for C pointer recovery during game_fn calls
+
+	register_fns(state)
+
 	return ffi.cast("void*", state_id)
 end
 
