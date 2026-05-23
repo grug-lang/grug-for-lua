@@ -6,8 +6,8 @@ local json = require("json")
 
 -- Settings
 local path = "results.json"
-local warmup_seconds = 1
-local measured_seconds = 1
+local warmup_seconds = 0.1
+local measured_seconds = 0.1
 
 local utils = {}
 
