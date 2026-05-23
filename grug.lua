@@ -2474,8 +2474,6 @@ function Transpiler.new(file, safe_mode)
 	return setmetatable({
 		file = file,
 		globals = globals,
-		loop_id_counter = 0,
-		loop_stack = {}, -- stack of integer loop IDs, innermost last
 		parts = {}, -- string fragments collected by :w()
 		safe_mode = safe_mode,
 	}, Transpiler)
@@ -2627,17 +2625,28 @@ function Transpiler:emit_stmt(stmt, indentation)
 			self:w(indentation .. "do return end\n")
 		end
 	elseif t == "WhileStatement" then
-		-- Assign a unique ID to this loop so `continue` can find its label.
-		self.loop_id_counter = self.loop_id_counter + 1
-		local loop_id = self.loop_id_counter
-		table.insert(self.loop_stack, loop_id)
-
+		-- `continue` and `break` are both implemented via an inner
+		-- `repeat ... until true` wrapper around the loop body.
+		--
+		-- A `continue` emits `do break end`, which exits only the inner
+		-- repeat, so execution falls through to the `if _brk` check (which
+		-- is false) and then loops back to re-evaluate the while condition.
+		--
+		-- A `break` emits `_brk = true` followed by `do break end`.  After
+		-- the repeat exits, `if _brk then break end` fires a real break on
+		-- the outer while.
+		--
+		-- `_brk` is a `local` declared once per iteration, so nested while
+		-- loops each have their own independent copy via Lua lexical scoping.
+		--
+		-- This is the standard Lua 5.1 compatible idiom since goto/labels
+		-- are not available until Lua 5.2.
 		self:w(indentation .. "while " .. self:emit_expr(stmt.condition) .. " do\n")
-		self:emit_stmts(stmt.body_statements, indentation .. "\t")
-		-- Place the continue target label at the very end of the loop body so
-		-- that `goto continue_N` (continue) skips the rest of the body but
-		-- still reaches the time-limit check below.
-		self:w(indentation .. "\t::continue_" .. loop_id .. "::\n")
+		self:w(indentation .. "\tlocal _brk = false\n")
+		self:w(indentation .. "\trepeat\n")
+		self:emit_stmts(stmt.body_statements, indentation .. "\t\t")
+		self:w(indentation .. "\tuntil true\n")
+		self:w(indentation .. "\tif _brk then break end\n")
 		-- In safe mode, check the time limit after every iteration (including
 		-- after a `continue`). Throw a table error so the outer pcall in
 		-- call_on_function can recognise and route it to runtime_error_handler.
@@ -2651,14 +2660,15 @@ function Transpiler:emit_stmt(stmt, indentation)
 			self:w(indentation .. "\tend\n")
 		end
 		self:w(indentation .. "end\n")
-
-		table.remove(self.loop_stack)
 	elseif t == "BreakStatement" then
+		-- Set the flag so the post-repeat check can fire a real `break` on
+		-- the outer while, then exit the inner `repeat ... until true`.
+		self:w(indentation .. "_brk = true\n")
 		self:w(indentation .. "do break end\n")
 	elseif t == "ContinueStatement" then
-		-- Jump to the innermost enclosing loop's continue label.
-		local current_loop_id = self.loop_stack[#self.loop_stack]
-		self:w(indentation .. "goto continue_" .. current_loop_id .. "\n")
+		-- Exit the inner `repeat ... until true` without setting `_brk`,
+		-- so the outer while loop continues to its next iteration.
+		self:w(indentation .. "do break end\n")
 
 		-- EmptyLineStatement and CommentStatement are intentionally omitted.
 	end
@@ -2769,7 +2779,7 @@ function Transpiler:generate()
 
 	-- 2. Upvalue slots for every game function that is actually called.
 	--    (Declaring these as locals before the functions that use them lets
-	--    LuaJIT / Lua 5.5 access them as upvalues rather than globals.)
+	--    LuaJIT / Lua 5.1 access them as upvalues rather than globals.)
 	for _, name in ipairs(game_fn_names) do
 		self:w("local " .. name .. "\n")
 	end
