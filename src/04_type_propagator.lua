@@ -336,6 +336,19 @@ function TypePropagator:fill_call_expr(expr)
 	if target_fn then
 		expr.result = { type = target_fn.return_type, type_name = target_fn.return_type_name }
 		self:check_arguments(target_fn.arguments, expr)
+
+		if self.game_functions[fn_name] then
+			if self.current_fn then
+				self.current_fn.used_game_fns[fn_name] = true
+			elseif self.current_global then
+				self.current_global.used_game_fns[fn_name] = true
+			end
+		elseif self.helper_fns[fn_name] then
+			if self.current_fn then
+				self.current_fn.needs_clock = true
+			end
+		end
+
 		return
 	end
 
@@ -495,6 +508,9 @@ function TypePropagator:fill_statements(statements)
 				self:fill_statements(stmt.else_body)
 			end
 		elseif stype == "WhileStatement" then
+			if self.current_fn then
+				self.current_fn.needs_clock = true
+			end
 			self:fill_expr(stmt.condition)
 			self:fill_statements(stmt.body_statements)
 		elseif stype == "ReturnStatement" then
@@ -566,6 +582,8 @@ function TypePropagator:fill_global_variables()
 	self:add_global_variable("me", "ID", self.file_entity_type)
 	for _, stmt in ipairs(self.ast) do
 		if stmt.stmt_type == "VariableStatement" then
+			self.current_global = stmt
+			stmt.used_game_fns = {}
 			self:check_global_expr(stmt.expr, stmt.name)
 			self:fill_expr(stmt.expr)
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
@@ -582,6 +600,7 @@ function TypePropagator:fill_global_variables()
 				)
 			end
 			self:add_global_variable(stmt.name, stmt.type, stmt.type_name)
+			self.current_global = nil
 		end
 	end
 end
@@ -638,6 +657,9 @@ function TypePropagator:fill_on_fns()
 
 			local fn = self.on_fns[name]
 			self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = nil, nil, name
+			self.current_fn = fn
+			fn.needs_clock = false
+			fn.used_game_fns = {}
 			local params = expected_fn.arguments or {}
 
 			if #fn.arguments ~= #params then
@@ -691,6 +713,7 @@ function TypePropagator:fill_on_fns()
 
 			self:add_argument_variables(fn.arguments)
 			self:fill_statements(fn.body_statements)
+			self.current_fn = nil
 		end
 	end
 end
@@ -698,6 +721,9 @@ end
 function TypePropagator:fill_helper_fns()
 	for name, fn in pairs(self.helper_fns) do
 		self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = fn.return_type, fn.return_type_name, name
+		self.current_fn = fn
+		fn.needs_clock = false
+		fn.used_game_fns = {}
 		self:add_argument_variables(fn.arguments)
 		self:fill_statements(fn.body_statements)
 
@@ -713,6 +739,7 @@ function TypePropagator:fill_helper_fns()
 				)
 			end
 		end
+		self.current_fn = nil
 	end
 end
 

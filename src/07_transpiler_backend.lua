@@ -229,62 +229,6 @@ function Transpiler:emit_stmt(stmt, indentation)
 end
 
 -- ---------------------------------------------------------------------------
--- Game-function usage collector (walk AST to find only the fns that are called)
--- ---------------------------------------------------------------------------
-
-function Transpiler:_collect_game_fns_expr(expr, used)
-	if expr.fn_name then
-		if expr.fn_name:sub(1, 7) ~= "helper_" then
-			used[expr.fn_name] = true
-		end
-		for _, arg in ipairs(expr.arguments) do
-			self:_collect_game_fns_expr(arg, used)
-		end
-	elseif expr.left_expr then
-		self:_collect_game_fns_expr(expr.left_expr, used)
-		self:_collect_game_fns_expr(expr.right_expr, used)
-	elseif expr.operator then -- unary
-		self:_collect_game_fns_expr(expr.expr, used)
-	elseif expr.expr then -- parenthesised
-		self:_collect_game_fns_expr(expr.expr, used)
-	end
-end
-
-function Transpiler:_collect_game_fns_stmts(stmts, used)
-	for _, stmt in ipairs(stmts) do
-		local t = stmt.stmt_type
-		if t == "VariableStatement" or t == "CallStatement" then
-			self:_collect_game_fns_expr(stmt.expr, used)
-		elseif t == "IfStatement" then
-			self:_collect_game_fns_expr(stmt.condition, used)
-			self:_collect_game_fns_stmts(stmt.if_body, used)
-			self:_collect_game_fns_stmts(stmt.else_body or {}, used)
-		elseif t == "WhileStatement" then
-			self:_collect_game_fns_expr(stmt.condition, used)
-			self:_collect_game_fns_stmts(stmt.body_statements, used)
-		elseif t == "ReturnStatement" and stmt.value then
-			self:_collect_game_fns_expr(stmt.value, used)
-		end
-	end
-end
-
-function Transpiler:collect_game_fns()
-	local used = {}
-	-- Scan global-variable initialiser expressions.
-	for _, g in ipairs(self.file.global_variables) do
-		self:_collect_game_fns_expr(g.expr, used)
-	end
-	-- Scan on_ and helper_ function bodies.
-	for _, fn in pairs(self.file.on_fns) do
-		self:_collect_game_fns_stmts(fn.body_statements, used)
-	end
-	for _, fn in pairs(self.file.helper_fns) do
-		self:_collect_game_fns_stmts(fn.body_statements, used)
-	end
-	return used
-end
-
--- ---------------------------------------------------------------------------
 -- Top-level code generation
 -- ---------------------------------------------------------------------------
 
@@ -296,7 +240,7 @@ function Transpiler:emit_fn(fn_name, fn)
 
 	self:w("function fns." .. fn_name .. "(" .. table.concat(params, ", ") .. ")\n")
 
-	if self.safe_mode and fn_name:sub(1, 3) == "on_" then
+	if self.safe_mode and fn_name:sub(1, 3) == "on_" and fn.needs_clock then
 		self:w("\t_start_time = _clock()\n")
 	elseif self.safe_mode and fn_name:sub(1, 7) == "helper_" then
 		self:w("\tif _clock() - _start_time > _time_limit_sec then\n")
@@ -312,7 +256,22 @@ function Transpiler:emit_fn(fn_name, fn)
 end
 
 function Transpiler:generate()
-	local used_game_fns = self:collect_game_fns()
+	local used_game_fns = {}
+	for _, g in ipairs(self.file.global_variables) do
+		for k, _ in pairs(g.used_game_fns or {}) do
+			used_game_fns[k] = true
+		end
+	end
+	for _, fn in pairs(self.file.on_fns) do
+		for k, _ in pairs(fn.used_game_fns or {}) do
+			used_game_fns[k] = true
+		end
+	end
+	for _, fn in pairs(self.file.helper_fns) do
+		for k, _ in pairs(fn.used_game_fns or {}) do
+			used_game_fns[k] = true
+		end
+	end
 
 	-- Sort names for deterministic output.
 	local game_fn_names = {}

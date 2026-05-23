@@ -13,12 +13,10 @@ local e = {
 }
 
 function fns.on_increment()
-	_start_time = _clock()
 	e.i = (e.i + get_1(nil))
 end
 
 function fns.on_print()
-	_start_time = _clock()
 	print_number(nil, e.i)
 end
 

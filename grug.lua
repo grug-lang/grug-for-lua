@@ -1670,6 +1670,19 @@ function TypePropagator:fill_call_expr(expr)
 	if target_fn then
 		expr.result = { type = target_fn.return_type, type_name = target_fn.return_type_name }
 		self:check_arguments(target_fn.arguments, expr)
+
+		if self.game_functions[fn_name] then
+			if self.current_fn then
+				self.current_fn.used_game_fns[fn_name] = true
+			elseif self.current_global then
+				self.current_global.used_game_fns[fn_name] = true
+			end
+		elseif self.helper_fns[fn_name] then
+			if self.current_fn then
+				self.current_fn.needs_clock = true
+			end
+		end
+
 		return
 	end
 
@@ -1829,6 +1842,9 @@ function TypePropagator:fill_statements(statements)
 				self:fill_statements(stmt.else_body)
 			end
 		elseif stype == "WhileStatement" then
+			if self.current_fn then
+				self.current_fn.needs_clock = true
+			end
 			self:fill_expr(stmt.condition)
 			self:fill_statements(stmt.body_statements)
 		elseif stype == "ReturnStatement" then
@@ -1900,6 +1916,8 @@ function TypePropagator:fill_global_variables()
 	self:add_global_variable("me", "ID", self.file_entity_type)
 	for _, stmt in ipairs(self.ast) do
 		if stmt.stmt_type == "VariableStatement" then
+			self.current_global = stmt
+			stmt.used_game_fns = {}
 			self:check_global_expr(stmt.expr, stmt.name)
 			self:fill_expr(stmt.expr)
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
@@ -1916,6 +1934,7 @@ function TypePropagator:fill_global_variables()
 				)
 			end
 			self:add_global_variable(stmt.name, stmt.type, stmt.type_name)
+			self.current_global = nil
 		end
 	end
 end
@@ -1972,6 +1991,9 @@ function TypePropagator:fill_on_fns()
 
 			local fn = self.on_fns[name]
 			self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = nil, nil, name
+			self.current_fn = fn
+			fn.needs_clock = false
+			fn.used_game_fns = {}
 			local params = expected_fn.arguments or {}
 
 			if #fn.arguments ~= #params then
@@ -2025,6 +2047,7 @@ function TypePropagator:fill_on_fns()
 
 			self:add_argument_variables(fn.arguments)
 			self:fill_statements(fn.body_statements)
+			self.current_fn = nil
 		end
 	end
 end
@@ -2032,6 +2055,9 @@ end
 function TypePropagator:fill_helper_fns()
 	for name, fn in pairs(self.helper_fns) do
 		self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = fn.return_type, fn.return_type_name, name
+		self.current_fn = fn
+		fn.needs_clock = false
+		fn.used_game_fns = {}
 		self:add_argument_variables(fn.arguments)
 		self:fill_statements(fn.body_statements)
 
@@ -2047,6 +2073,7 @@ function TypePropagator:fill_helper_fns()
 				)
 			end
 		end
+		self.current_fn = nil
 	end
 end
 
@@ -2675,62 +2702,6 @@ function Transpiler:emit_stmt(stmt, indentation)
 end
 
 -- ---------------------------------------------------------------------------
--- Game-function usage collector (walk AST to find only the fns that are called)
--- ---------------------------------------------------------------------------
-
-function Transpiler:_collect_game_fns_expr(expr, used)
-	if expr.fn_name then
-		if expr.fn_name:sub(1, 7) ~= "helper_" then
-			used[expr.fn_name] = true
-		end
-		for _, arg in ipairs(expr.arguments) do
-			self:_collect_game_fns_expr(arg, used)
-		end
-	elseif expr.left_expr then
-		self:_collect_game_fns_expr(expr.left_expr, used)
-		self:_collect_game_fns_expr(expr.right_expr, used)
-	elseif expr.operator then -- unary
-		self:_collect_game_fns_expr(expr.expr, used)
-	elseif expr.expr then -- parenthesised
-		self:_collect_game_fns_expr(expr.expr, used)
-	end
-end
-
-function Transpiler:_collect_game_fns_stmts(stmts, used)
-	for _, stmt in ipairs(stmts) do
-		local t = stmt.stmt_type
-		if t == "VariableStatement" or t == "CallStatement" then
-			self:_collect_game_fns_expr(stmt.expr, used)
-		elseif t == "IfStatement" then
-			self:_collect_game_fns_expr(stmt.condition, used)
-			self:_collect_game_fns_stmts(stmt.if_body, used)
-			self:_collect_game_fns_stmts(stmt.else_body or {}, used)
-		elseif t == "WhileStatement" then
-			self:_collect_game_fns_expr(stmt.condition, used)
-			self:_collect_game_fns_stmts(stmt.body_statements, used)
-		elseif t == "ReturnStatement" and stmt.value then
-			self:_collect_game_fns_expr(stmt.value, used)
-		end
-	end
-end
-
-function Transpiler:collect_game_fns()
-	local used = {}
-	-- Scan global-variable initialiser expressions.
-	for _, g in ipairs(self.file.global_variables) do
-		self:_collect_game_fns_expr(g.expr, used)
-	end
-	-- Scan on_ and helper_ function bodies.
-	for _, fn in pairs(self.file.on_fns) do
-		self:_collect_game_fns_stmts(fn.body_statements, used)
-	end
-	for _, fn in pairs(self.file.helper_fns) do
-		self:_collect_game_fns_stmts(fn.body_statements, used)
-	end
-	return used
-end
-
--- ---------------------------------------------------------------------------
 -- Top-level code generation
 -- ---------------------------------------------------------------------------
 
@@ -2742,7 +2713,7 @@ function Transpiler:emit_fn(fn_name, fn)
 
 	self:w("function fns." .. fn_name .. "(" .. table.concat(params, ", ") .. ")\n")
 
-	if self.safe_mode and fn_name:sub(1, 3) == "on_" then
+	if self.safe_mode and fn_name:sub(1, 3) == "on_" and fn.needs_clock then
 		self:w("\t_start_time = _clock()\n")
 	elseif self.safe_mode and fn_name:sub(1, 7) == "helper_" then
 		self:w("\tif _clock() - _start_time > _time_limit_sec then\n")
@@ -2758,7 +2729,22 @@ function Transpiler:emit_fn(fn_name, fn)
 end
 
 function Transpiler:generate()
-	local used_game_fns = self:collect_game_fns()
+	local used_game_fns = {}
+	for _, g in ipairs(self.file.global_variables) do
+		for k, _ in pairs(g.used_game_fns or {}) do
+			used_game_fns[k] = true
+		end
+	end
+	for _, fn in pairs(self.file.on_fns) do
+		for k, _ in pairs(fn.used_game_fns or {}) do
+			used_game_fns[k] = true
+		end
+	end
+	for _, fn in pairs(self.file.helper_fns) do
+		for k, _ in pairs(fn.used_game_fns or {}) do
+			used_game_fns[k] = true
+		end
+	end
 
 	-- Sort names for deterministic output.
 	local game_fn_names = {}

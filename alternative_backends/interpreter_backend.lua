@@ -96,7 +96,6 @@ function _InterpreterEntity:_init_globals(global_variables)
 
 	local old_fn_depth = self.state.fn_depth
 	self.state.fn_depth = self.state.fn_depth + 1
-	self.start_time = clock()
 
 	if not self.state.safe_mode then
 		self:_init_globals_impl(global_variables)
@@ -173,7 +172,7 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 
 	local old_on_fn_depth = self.on_fn_depth
 	self.on_fn_depth = self.on_fn_depth + 1
-	if self.on_fn_depth == 1 then
+	if self.on_fn_depth == 1 and on_fn.needs_clock then
 		self.start_time = clock()
 	end
 
