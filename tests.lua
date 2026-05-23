@@ -512,8 +512,9 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 end
 
 local function make_io_callback(method)
-	return function(state_ptr_, input_buffer_, output_buffer_, output_buffer_len)
+	return function(state_ptr_, input_buffer_, output_buffer_, output_buffer_len_)
 		local state = assert(states[to_uintptr(state_ptr_)])
+		local output_buffer_len = cdata_to_number(output_buffer_len_)
 
 		local input_text = ffi.string(input_buffer_)
 		local ok, result = pcall(state[method], state, input_text)
