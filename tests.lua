@@ -155,8 +155,6 @@ local entities = {} -- int -> Entity
 
 local last_file_id = nil
 
-local last_error = nil
-
 local grug_runtime_err = nil
 
 local game_fn_error_reason = nil
@@ -587,7 +585,6 @@ local function reset_state()
 	files = {}
 	entities = {}
 	last_file_id = nil
-	last_error = nil
 	grug_runtime_err = nil
 	game_fn_error_reason = nil
 end
