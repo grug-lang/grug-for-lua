@@ -30,9 +30,12 @@ function fns.helper_fib_list(n)
 	local memo = Dict(nil)
 	local i = 0
 	while (i <= n) do
-		list_append(nil, fib_list, fns.helper_fib(i, memo))
-		i = (i + 1)
-		::continue_1::
+		local _brk = false
+		repeat
+			list_append(nil, fib_list, fns.helper_fib(i, memo))
+			i = (i + 1)
+		until true
+		if _brk then break end
 	end
 	do return fib_list end
 end
