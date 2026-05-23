@@ -51,7 +51,6 @@ jobs:
             echo "LUA_CMD=lua5.4" >> $GITHUB_ENV
           elif [ "${{ matrix.lua }}" = "luaj-jse-2.0.3" ]; then
             sudo apt-get install -y openjdk-17-jre
-            sudo luarocks --lua-version 5.2 install cffi-lua
 
             mkdir -p $HOME/luaj
             curl -L \
@@ -98,6 +97,7 @@ jobs:
           fi
 
       - name: Run tests
+        if: matrix.lua != 'luaj-jse-2.0.3' # luaj can't use cffi-lua
         run: $LUA_CMD tests.lua "" ./grug-tests
 
       - name: Run all Lua examples
