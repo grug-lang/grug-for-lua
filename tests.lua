@@ -549,7 +549,7 @@ callbacks.json_to_grug = make_io_callback("json_to_grug")
 function callbacks.game_fn_error(_state_ptr_, reason_)
 	game_fn_error_reason = ffi.string(reason_)
 end
-	
+
 -- Create a table to anchor the C callback closures
 local vtable_anchors = {
 	create_grug_state = ffi.cast("void* (*)(const char*, const char*, bool)", callbacks.create_grug_state),
