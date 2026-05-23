@@ -1,0 +1,38 @@
+{
+    "entities": {
+        "Benchmark": {
+            "description": "Break/continue benchmark.",
+            "on_functions": [
+                {
+                    "name": "on_run",
+                    "description": "Sums the first 100 even numbers using break and continue."
+                }
+            ]
+        }
+    },
+    "game_functions": {
+        "is_odd": {
+            "description": "Returns true if the number is odd.",
+            "arguments": [
+                {
+                    "name": "n",
+                    "type": "number"
+                }
+            ],
+            "return_type": "bool"
+        },
+        "assert_equals": {
+            "description": "Asserts that two numbers are equal.",
+            "arguments": [
+                {
+                    "name": "actual",
+                    "type": "number"
+                },
+                {
+                    "name": "expected",
+                    "type": "number"
+                }
+            ]
+        }
+    }
+}

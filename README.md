@@ -94,6 +94,10 @@ This will:
 
 ![graph](benchmarks/fibonacci/results.svg)
 
+### Benchmark: [benchmarks/break_continue/](https://github.com/grug-lang/grug-for-lua/tree/main/benchmarks/break_continue)
+
+![graph](benchmarks/break_continue/results.svg)
+
 ### Installing dependencies
 
 ```sh
