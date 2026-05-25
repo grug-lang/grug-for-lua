@@ -110,7 +110,8 @@ Customize this command to pass your own executable names and JSON output paths:
 ```sh
 python run_benchmarks.py \
   --impl lua lua5.5.json \
-  --impl luajit luajit.json
+  --impl luajit luajit.json \
+  --impl 'luajit -joff' luajit_joff.json
 ```
 
 ### Investigating slow benchmarks

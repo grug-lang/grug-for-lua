@@ -39,13 +39,9 @@ def load_results(directory: Path) -> List[Dict[str, Any]]:
     for path in json_files:
         data = json.loads(path.read_text(encoding="utf-8"))
 
-        metadata = data["metadata"]
-        lua_version = metadata["lua_version"]
-        label = metadata.get("jit_version", lua_version)
-
         specializations = data["specializations"]
 
-        records.append({"label": label, "specializations": specializations})
+        records.append({"label": path.stem, "specializations": specializations})
 
     return records
 

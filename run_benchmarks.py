@@ -186,7 +186,10 @@ def main():
                         "iters_per_sec": max_iters_per_sec,
                     }
                     aggregated_specs.append(reduced_spec)
-                    all_aggregated.append(reduced_spec)
+
+                    # Only assert regressions on standard engines, ignoring interpreter-only flag overhead
+                    if "-joff" not in executable:
+                        all_aggregated.append(reduced_spec)
 
                 # Output the aggregated payload intended for visualize_benchmarks.py
                 summary_data = {
