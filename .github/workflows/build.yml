@@ -18,6 +18,7 @@ jobs:
           - lua5.3
           - lua5.4
           - luaj-jse-2.0.3
+          - luajit-remake
 
     steps:
       - name: Checkout repo
@@ -58,6 +59,11 @@ jobs:
               https://repo1.maven.org/maven2/org/luaj/luaj-jse/2.0.3/luaj-jse-2.0.3.jar
 
             echo "LUA_CMD=java -cp $HOME/luaj/luaj.jar lua" >> $GITHUB_ENV
+          elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
+            git clone https://github.com/luajit-remake/luajit-remake.git $HOME/luajit-remake
+            cd $HOME/luajit-remake
+            python3 ljr-build make release
+            echo "LUA_CMD=$HOME/luajit-remake/luajitr" >> $GITHUB_ENV
           fi
 
       - name: Clone and build grug-tests
@@ -77,30 +83,36 @@ jobs:
         run: git diff --exit-code
 
       - name: Run tests
-        if: matrix.lua != 'luaj-jse-2.0.3' # luaj can't use cffi-lua
+        if: matrix.lua != 'luaj-jse-2.0.3' && matrix.lua != 'luajit-remake'
         run: $LUA_CMD tests.lua "" ./grug-tests
 
       - name: Run all Lua examples
+        if: matrix.lua != 'luajit-remake'
         run: |
           python3 run_examples.py
 
       - name: Run benchmarks
-        if: matrix.lua == 'luajit'
+        if: matrix.lua == 'luajit' || matrix.lua == 'luajit-remake'
         run: |
-          python run_benchmarks.py \
-            --impl "luajit -jv" luajit.json \
-            2>&1 | tee luajit.log
+          if [ "${{ matrix.lua }}" = "luajit" ]; then
+            python run_benchmarks.py \
+              --impl "luajit -jv" luajit.json \
+              2>&1 | tee luajit.log
 
-          # Remove `NYI: return to lower frame` lines from the log,
-          # as they occur sporadically and can't be fixed by the code.
-          # See https://github.com/grug-lang/grug-for-lua/issues/16
-          CLEANED_LOG=$(sed '/NYI: return to lower frame/d' luajit.log)
+            # Remove `NYI: return to lower frame` lines from the log,
+            # as they occur sporadically and can't be fixed by the code.
+            # See https://github.com/grug-lang/grug-for-lua/issues/16
+            CLEANED_LOG=$(sed '/NYI: return to lower frame/d' luajit.log)
 
-          # Check if any other unexpected NYI strings remain.
-          if echo "$CLEANED_LOG" | grep -q 'NYI'; then
-              echo "ERROR: Unexpected NYI detected in LuaJIT trace output" >&2
-              echo "$CLEANED_LOG" | grep 'NYI' >&2
-              exit 1
+            # Check if any other unexpected NYI strings remain.
+            if echo "$CLEANED_LOG" | grep -q 'NYI'; then
+                echo "ERROR: Unexpected NYI detected in LuaJIT trace output" >&2
+                echo "$CLEANED_LOG" | grep 'NYI' >&2
+                exit 1
+            fi
+          elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
+            python run_benchmarks.py \
+              --impl "$HOME/luajit-remake/luajitr" luajit-remake.json
           fi
 
   lint:
