@@ -186,7 +186,7 @@ function Transpiler:emit_stmt(stmt, indentation)
 		-- repeat, so execution falls through to the `if _brk` check (which
 		-- is false) and then loops back to re-evaluate the while condition.
 		--
-		-- A `break` emits `_brk = true` followed by `do break end`.  After
+		-- A `break` emits `_brk = true` followed by `do break end`. After
 		-- the repeat exits, `if _brk then break end` fires a real break on
 		-- the outer while.
 		--
