@@ -60,10 +60,14 @@ jobs:
 
             echo "LUA_CMD=java -cp $HOME/luaj/luaj.jar lua" >> $GITHUB_ENV
           elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
+            # Clone to a temporary directory to build it
             git clone https://github.com/luajit-remake/luajit-remake.git $HOME/luajit-remake
             cd $HOME/luajit-remake
             python3 ljr-build make release
-            echo "LUA_CMD=$HOME/luajit-remake/luajitr" >> $GITHUB_ENV
+            
+            # Move the compiled binary back into our workspace root
+            mv luajitr $GITHUB_WORKSPACE/luajitr
+            echo "LUA_CMD=$GITHUB_WORKSPACE/luajitr" >> $GITHUB_ENV
           fi
 
       - name: Clone and build grug-tests
@@ -112,7 +116,7 @@ jobs:
             fi
           elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
             python run_benchmarks.py \
-              --impl "$HOME/luajit-remake/luajitr" luajit-remake.json
+              --impl "$LUA_CMD" luajit-remake.json
           fi
 
   lint:
