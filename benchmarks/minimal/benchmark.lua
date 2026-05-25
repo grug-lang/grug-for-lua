@@ -1,6 +1,4 @@
-package.path = package.path .. ";../?.lua"
-
-local utils = require("utils")
+local utils = dofile("../utils.lua")
 
 local fns = {}
 

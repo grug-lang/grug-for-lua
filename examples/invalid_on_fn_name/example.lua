@@ -1,6 +1,4 @@
-package.path = package.path .. ";../../?.lua"
-
-local grug = require("grug")
+local grug = dofile("../../grug.lua")
 
 local state = grug.init({
 	grug_files = { "animals/labrador-Dog.grug" },

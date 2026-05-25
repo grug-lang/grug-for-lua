@@ -1,8 +1,6 @@
-package.path = package.path .. ";../../?.lua"
-
-local grug = require("grug")
-local interpreter_backend = require("alternative_backends/interpreter_backend")
-local json = require("json")
+local grug = dofile("../../grug.lua")
+local interpreter_backend = dofile("../../alternative_backends/interpreter_backend.lua")
+local json = dofile("../json.lua")
 
 -- Settings
 local path = "results.json"
@@ -34,9 +32,14 @@ if not selected_specialization then
 	error("Error: pass --specialization <specialization name>")
 end
 
+-- luajit-remake has not implemented some functions yet.
+local has_flush = pcall(io.flush)
+
 function utils.log(...)
 	print(...)
-	io.flush()
+	if has_flush then
+		io.flush()
+	end
 end
 
 local function register_fns(state, fns)
@@ -163,11 +166,11 @@ end
 
 function utils.benchmark_safe_and_unsafe_lua_references(fns, benchmark)
 	if selected_specialization == "unsafe lua reference" then
-		local ref = require("reference_unsafe")
+		local ref = dofile("reference_unsafe.lua")
 		ref.init(fns)
 		benchmark(ref, "unsafe lua reference")
 	elseif selected_specialization == "safe lua reference" then
-		local ref = require("reference_safe")
+		local ref = dofile("reference_safe.lua")
 		ref.init(fns)
 		benchmark(ref, "safe lua reference")
 	end

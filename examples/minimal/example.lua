@@ -1,7 +1,4 @@
--- grug.lua is two directories up
-package.path = package.path .. ";../../?.lua"
-
-local grug = require("grug")
+local grug = dofile("../../grug.lua")
 
 -- You can pass your own list_dir(path) and is_dir(path) instead:
 -- grug.init({ fs = { list_dir = list_dir, is_dir = is_dir, } })
