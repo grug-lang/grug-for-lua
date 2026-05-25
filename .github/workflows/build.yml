@@ -62,11 +62,18 @@ jobs:
           elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
             # Clone to a temporary directory to build it
             git clone https://github.com/luajit-remake/luajit-remake.git $HOME/luajit-remake
+            
+            # Fix Docker volume UID mismatch (GH runner is 1001, container user 'u' is 1000)
+            # This prevents Git's "dubious ownership" panic and write permission errors.
+            sudo chown -R 1000:1000 $HOME/luajit-remake
+            
             cd $HOME/luajit-remake
             python3 ljr-build make release
             
-            # Move the compiled binary back into our workspace root
-            mv luajitr $GITHUB_WORKSPACE/luajitr
+            # The resulting binary is owned by UID 1000, so we need sudo to move and claim it
+            sudo mv luajitr $GITHUB_WORKSPACE/luajitr
+            sudo chown $USER:$USER $GITHUB_WORKSPACE/luajitr
+            
             echo "LUA_CMD=$GITHUB_WORKSPACE/luajitr" >> $GITHUB_ENV
           fi
 
