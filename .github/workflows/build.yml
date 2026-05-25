@@ -76,7 +76,14 @@ jobs:
         if: matrix.lua == 'luajit'
         run: git diff --exit-code
 
-      # TODO: Move this below the "Run all Lua examples" step
+      - name: Run tests
+        if: matrix.lua != 'luaj-jse-2.0.3' # luaj can't use cffi-lua
+        run: $LUA_CMD tests.lua "" ./grug-tests
+
+      - name: Run all Lua examples
+        run: |
+          python3 run_examples.py
+
       - name: Run benchmarks
         if: matrix.lua == 'luajit'
         run: |
@@ -95,14 +102,6 @@ jobs:
               echo "$CLEANED_LOG" | grep 'NYI' >&2
               exit 1
           fi
-
-      - name: Run tests
-        if: matrix.lua != 'luaj-jse-2.0.3' # luaj can't use cffi-lua
-        run: $LUA_CMD tests.lua "" ./grug-tests
-
-      - name: Run all Lua examples
-        run: |
-          python3 run_examples.py
 
   lint:
     runs-on: ubuntu-latest
