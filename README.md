@@ -134,6 +134,17 @@ python run_benchmarks.py \
   | tee luajit.log
 ```
 
+### Using luajit-remake
+
+[luajit-remake](https://github.com/luajit-remake/luajit-remake) is an on average faster version of LuaJIT.
+
+In order to use it, clone it, cd into it, make sure you have `docker` and `python3` installed, and run:
+```
+python3 ljr-build make release
+```
+
+Once built, it output a `luajitr` executable that you can use in place of `luajit`.
+
 ### Generating graphs for all results
 
 ```sh
