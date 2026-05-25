@@ -77,8 +77,23 @@ def main() -> None:
 
         df = build_dataframe(records)
 
-        present = set(df["specialization"].unique())  # type: ignore
-        spec_order = [s for s in SPECIALIZATIONS if s in present]
+        # Filter to valid specializations and order the labels (y-axis)
+        # by the highest single 'iters_per_sec' value in each group
+        spec_order = (
+            df[df["specialization"].isin(SPECIALIZATIONS)]
+            .groupby("specialization")["iters_per_sec"]
+            .max()
+            .sort_values(ascending=False)
+            .index.tolist()
+        )
+
+        # Determine the order of the bars (implementations) within each label
+        imp_order = (
+            df.groupby("implementation")["iters_per_sec"]
+            .max()
+            .sort_values(ascending=False)
+            .index.tolist()
+        )
 
         fig_width = 10
         fig_height = len(spec_order) * 1.3
@@ -90,7 +105,8 @@ def main() -> None:
             x="iters_per_sec",
             y="specialization",
             hue="implementation",
-            order=spec_order,
+            order=spec_order,  # Enforces dynamic label ordering (fastest group first)
+            hue_order=imp_order,  # Enforces dynamic bar ordering (fastest bar first)
             errorbar=None,
         )
 
