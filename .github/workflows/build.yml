@@ -27,7 +27,7 @@ jobs:
       - name: Install Lua and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential luarocks curl meson ninja-build
+          sudo apt-get install -y cmake build-essential luarocks curl meson ninja-build acl
 
           sudo luarocks install luacheck
 
@@ -62,12 +62,19 @@ jobs:
           elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
             # Clone to a temporary directory to build it
             git clone https://github.com/luajit-remake/luajit-remake.git $HOME/luajit-remake
-            
-            # Fix Docker volume UID mismatch (GH runner is 1001, container user 'u' is 1000)
-            # This prevents Git's "dubious ownership" panic and write permission errors.
-            sudo chown -R 1000:1000 $HOME/luajit-remake
-            
             cd $HOME/luajit-remake
+            
+            # The host runner is UID 1001, but the Docker container runs as user 'u' (UID 1000).
+            # 1. Use ACLs to grant UID 1000 full read/write access to current and future files
+            # created by the host script (like the 'build' directory).
+            sudo setfacl -R -m u:1000:rwx .
+            sudo setfacl -d -m u:1000:rwx .
+            
+            # 2. Prevent Git's "dubious ownership" error inside the container by 
+            # assigning ownership of just the .git directory to UID 1000.
+            sudo chown -R 1000:1000 .git
+            
+            # Now the script can run seamlessly across both user contexts
             python3 ljr-build make release
             
             # The resulting binary is owned by UID 1000, so we need sudo to move and claim it
