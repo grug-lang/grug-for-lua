@@ -107,6 +107,9 @@ Customize this command to pass your own executable names and JSON output paths:
 ```sh
 python run_benchmarks.py \
   --impl lua5.1 lua5.1.json \
+  --impl lua5.2 lua5.2.json \
+  --impl lua5.3 lua5.3.json \
+  --impl lua5.4 lua5.4.json \
   --impl lua5.5 lua5.5.json \
   --impl luajit luajit.json \
   --impl 'luajit -joff' luajit_joff.json \
