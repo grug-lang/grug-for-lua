@@ -147,12 +147,16 @@ def main():
         # Accumulates results for all configurations to check transpiler slowness at the end
         all_aggregated = []
 
+        is_luajit = False
+
         with change_dir(d):
             # Iterate through each Lua implementation configuration
             for executable, json_file in configs.items():
                 print(f"--- Implementation: {executable} ---", file=sys.stderr)
 
                 samples: Dict[str, list] = defaultdict(list)
+
+                last_metadata = {}
 
                 for specialization in specializations:
                     print(f"--- Specialization: {specialization} ---", file=sys.stderr)
