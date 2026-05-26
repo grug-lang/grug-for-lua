@@ -32,10 +32,9 @@ def change_dir(path: Path):
         os.chdir(prev_cwd)
 
 
-def run(cmd: List[str], json_filename: str, specialization: str):
+def run(cmd: List[str], specialization: str):
     full_cmd = cmd + [
         "benchmark.lua",
-        json_filename,
         "--specialization",
         specialization,
     ]
@@ -164,7 +163,7 @@ def main():
                             f"  Run {run_idx}/{NUM_RUNS} ({executable})...",
                             file=sys.stderr,
                         )
-                        run(shlex.split(executable), json_file, specialization)
+                        run(shlex.split(executable), specialization)
 
                         # Reads the ephemeral results.json created by the Lua script
                         with Path("results.json").open("r") as f:
