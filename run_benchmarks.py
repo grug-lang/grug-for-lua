@@ -153,7 +153,6 @@ def main():
                 print(f"--- Implementation: {executable} ---", file=sys.stderr)
 
                 samples: Dict[str, list] = defaultdict(list)
-                last_metadata = {}
 
                 for specialization in specializations:
                     print(f"--- Specialization: {specialization} ---", file=sys.stderr)
@@ -169,7 +168,7 @@ def main():
                         with Path("results.json").open("r") as f:
                             current = json.load(f)
 
-                        last_metadata = current.get("metadata", {})
+                        last_metadata = current["metadata"]
                         for spec in current["specializations"]:
                             samples[spec["name"]].append(spec)
 
@@ -196,10 +195,15 @@ def main():
                     "specializations": aggregated_specs,
                 }
 
+                # Only luajit sets jit.version
+                # This is more robust than checking whether `luajit` is in `executable`
+                is_luajit = "jit_version" in last_metadata
+
                 with Path(json_file).open("w") as f:
                     json.dump(summary_data, f, indent=2)
 
-        check_unsafe_grug_transpiler_backend_wasnt_slow(all_aggregated)
+        if is_luajit:
+            check_unsafe_grug_transpiler_backend_wasnt_slow(all_aggregated)
 
 
 if __name__ == "__main__":
