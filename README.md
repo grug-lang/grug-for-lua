@@ -106,7 +106,8 @@ pip install matplotlib seaborn
 Customize this command to pass your own executable names and JSON output paths:
 ```sh
 python run_benchmarks.py \
-  --impl lua lua5.5.json \
+  --impl lua5.1 lua5.1.json \
+  --impl lua5.5 lua5.5.json \
   --impl luajit luajit.json \
   --impl 'luajit -joff' luajit_joff.json \
   --impl luajitr luajitr.json
