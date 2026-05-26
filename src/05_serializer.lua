@@ -1,7 +1,7 @@
 local function map_list(list, fn)
 	local result = {}
 	for _, v in ipairs(list or {}) do
-		table.insert(result, fn(v))
+		push(result, fn(v))
 	end
 	return (#result > 0) and result or nil
 end
@@ -151,7 +151,7 @@ end
 -- grug Output
 -- ======================
 local function write(text, output)
-	table.insert(output, text)
+	push(output, text)
 end
 
 local function indent(indentation, output)

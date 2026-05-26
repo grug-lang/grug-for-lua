@@ -32,14 +32,9 @@ if not selected_specialization then
 	error("Error: pass --specialization <specialization name>")
 end
 
--- luajit-remake has not implemented some functions yet.
-local has_flush = pcall(io.flush)
-
 function utils.log(...)
 	print(...)
-	if has_flush then
-		io.flush()
-	end
+	io.flush()
 end
 
 local function register_fns(state, fns)
@@ -66,6 +61,10 @@ local function detect_batch_size(fn, entity)
 	end
 end
 
+local function push(t, value)
+	t[#t + 1] = value
+end
+
 -- Measures execution time of a function
 function utils.benchmark(name, fn, entity)
 	utils.log("--- Benchmarking " .. name .. " ---")
@@ -87,7 +86,7 @@ function utils.benchmark(name, fn, entity)
 
 	utils.log("Elapsed: " .. string.format("%.4f", elapsed) .. "s")
 
-	table.insert(specializations, {
+	push(specializations, {
 		name = name,
 		elapsed = elapsed,
 		iterations = total_measured_iterations,

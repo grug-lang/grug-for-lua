@@ -61,7 +61,8 @@ jobs:
             echo "LUA_CMD=java -cp $HOME/luaj/luaj.jar lua" >> $GITHUB_ENV
           elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
             # Clone to a temporary directory to build it
-            git clone https://github.com/luajit-remake/luajit-remake.git $HOME/luajit-remake
+            # This fork implements a few missing Lua stdlib functions
+            git clone https://github.com/MyNameIsTrez/luajit-remake $HOME/luajit-remake
             cd $HOME/luajit-remake
             
             # The host runner is UID 1001, but the Docker container runs as user 'u' (UID 1000).

@@ -53,6 +53,10 @@ local function encode_nil(val) -- luacheck: ignore
 	return "null"
 end
 
+local function push(t, value)
+	t[#t + 1] = value
+end
+
 local function encode_table(val, stack)
 	local res = {}
 	stack = stack or {}
@@ -78,7 +82,7 @@ local function encode_table(val, stack)
 		end
 		-- Encode
 		for _, v in ipairs(val) do
-			table.insert(res, encode(v, stack))
+			push(res, encode(v, stack))
 		end
 		stack[val] = nil
 		return "[" .. table.concat(res, ",") .. "]"
@@ -88,7 +92,7 @@ local function encode_table(val, stack)
 			if type(k) ~= "string" then
 				error("invalid table: mixed or invalid key types")
 			end
-			table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
+			push(res, encode(k, stack) .. ":" .. encode(v, stack))
 		end
 		stack[val] = nil
 		return "{" .. table.concat(res, ",") .. "}"
@@ -96,7 +100,23 @@ local function encode_table(val, stack)
 end
 
 local function encode_string(val)
-	return '"' .. val:gsub('[%z\1-\31\\"]', escape_char) .. '"'
+	local res = {}
+	local n = 0
+
+	for i = 1, #val do
+		local c = val:sub(i, i)
+		local b = val:byte(i)
+
+		if b <= 31 or c == "\\" or c == '"' then
+			n = n + 1
+			res[n] = escape_char(c)
+		else
+			n = n + 1
+			res[n] = c
+		end
+	end
+
+	return '"' .. table.concat(res) .. '"'
 end
 
 local function encode_number(val)

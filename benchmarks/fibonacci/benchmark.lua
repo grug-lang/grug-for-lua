@@ -12,8 +12,12 @@ local function Dict(_state)
 end
 fns["Dict"] = Dict
 
+local function push(t, value)
+	t[#t + 1] = value
+end
+
 local function list_append(_state, list, val)
-	table.insert(list, val)
+	push(list, val)
 end
 fns["list_append"] = list_append
 
@@ -34,15 +38,15 @@ fns["dict_set"] = dict_set
 
 local function assert_fib_list(list)
 	if #list ~= 51 then
-		io.stderr:write("ERROR: generated Fibonacci sequence is incorrect\n")
-		io.stderr:write("  Expected #list to be 51, got " .. #list .. "\n")
+		print("ERROR: generated Fibonacci sequence is incorrect\n")
+		print("  Expected #list to be 51, got " .. #list .. "\n")
 		os.exit(1)
 	end
 
 	local expected = 12586269025
 	if list[51] ~= expected then
-		io.stderr:write("ERROR: generated Fibonacci sequence is incorrect\n")
-		io.stderr:write("  Expected list[51] to be " .. expected .. ", got " .. list[51] .. "\n")
+		print("ERROR: generated Fibonacci sequence is incorrect\n")
+		print("  Expected list[51] to be " .. expected .. ", got " .. list[51] .. "\n")
 		os.exit(1)
 	end
 end

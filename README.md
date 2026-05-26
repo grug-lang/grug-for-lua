@@ -108,7 +108,8 @@ Customize this command to pass your own executable names and JSON output paths:
 python run_benchmarks.py \
   --impl lua lua5.5.json \
   --impl luajit luajit.json \
-  --impl 'luajit -joff' luajit_joff.json
+  --impl 'luajit -joff' luajit_joff.json \
+  --impl luajitr luajitr.json
 ```
 
 ### Investigating slow benchmarks
@@ -133,14 +134,14 @@ python run_benchmarks.py \
 
 ### Using luajit-remake
 
-[luajit-remake](https://github.com/luajit-remake/luajit-remake) is an on average faster version of LuaJIT.
+luajit-remake is a rewrite of LuaJIT that is on average way faster.
 
-In order to use it, clone it, cd into it, make sure you have `docker` and `python3` installed, and run:
-```
-python3 ljr-build make release
-```
-
-Once built, it output a `luajitr` executable that you can use in place of `luajit`.
+In order to use it:
+1. Clone [our fork](https://github.com/MyNameIsTrez/luajit-remake) of it, which implements a few missing Lua stdlib functions.
+2. `cd` into it.
+3. Make sure you have `docker` and `python3` installed.
+4. Run `python3 ljr-build make release`.
+5. Once built, it output a `luajitr` executable that you can add to your `PATH`.
 
 ### Generating graphs for all results
 

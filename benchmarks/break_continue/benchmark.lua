@@ -9,8 +9,8 @@ fns["is_odd"] = is_odd
 
 local function assert_equals(_state, actual, expected)
 	if actual ~= expected then
-		io.stderr:write("ERROR: assertion failed\n")
-		io.stderr:write("  Expected " .. expected .. ", got " .. actual .. "\n")
+		print("ERROR: assertion failed\n")
+		print("  Expected " .. expected .. ", got " .. actual .. "\n")
 		os.exit(1)
 	end
 end

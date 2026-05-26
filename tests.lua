@@ -10,7 +10,7 @@ do
 		if ok then
 			ffi = result
 		else
-			io.stderr:write('Error: require("ffi") and require("cffi") both returned nil.\n')
+			print('Error: require("ffi") and require("cffi") both returned nil.\n')
 			os.exit(1)
 		end
 	end
@@ -25,6 +25,10 @@ if whitelisted_test == "" then
 end
 
 local grug_tests_path = arg[2] or "../grug-tests"
+
+local function push(t, value)
+	t[#t + 1] = value
+end
 
 local function dump_to_str(tbl, indent, seen)
 	indent = indent or 0
@@ -47,19 +51,19 @@ local function dump_to_str(tbl, indent, seen)
 		local line = prefix .. "  [" .. tostring(k) .. "] = "
 
 		if type(v) == "table" then
-			table.insert(out, line)
-			table.insert(out, dump_to_str(v, indent + 1, seen))
+			push(out, line)
+			push(out, dump_to_str(v, indent + 1, seen))
 		else
-			table.insert(out, line .. tostring(v))
+			push(out, line .. tostring(v))
 		end
 	end
 
-	table.insert(out, prefix .. "}")
+	push(out, prefix .. "}")
 	return table.concat(out, "\n")
 end
 
 local function print_traceback(err)
-	io.stderr:write(debug.traceback(dump_to_str(err)) .. "\n")
+	print(debug.traceback(dump_to_str(err)) .. "\n")
 end
 
 -- luacheck: push ignore
@@ -491,7 +495,7 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 	local lua_args = {}
 	for i = 0, args_len - 1 do
 		local argument_decl = on_fn_decl.arguments[i + 1]
-		table.insert(lua_args, c_to_lua_value(args[i], argument_decl.type_name))
+		push(lua_args, c_to_lua_value(args[i], argument_decl.type_name))
 	end
 
 	local ok, err = pcall(function()

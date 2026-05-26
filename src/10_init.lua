@@ -86,15 +86,50 @@ function grug:_recompile_with_hot_reload(rel_path, existing)
 	return new_file
 end
 
+local function luajit_remake_gmatch(s, pattern)
+	-- This implementation only supports the pattern "[^/]+" (split by '/').
+	assert(pattern == "[^/]+", "luajit_remake_gmatch only supports '[^/]+'")
+
+	local i = 1
+	local len = #s
+
+	return function()
+		-- Skip leading slashes.
+		while i <= len and s:sub(i, i) == "/" do
+			i = i + 1
+		end
+
+		if i > len then
+			return nil
+		end
+
+		local start = i
+
+		-- Consume until next slash.
+		while i <= len and s:sub(i, i) ~= "/" do
+			i = i + 1
+		end
+
+		return s:sub(start, i - 1)
+	end
+end
+
+-- luajit-remake has not implemented string.gmatch,
+-- so it prints an error and returns false when called.
+local my_gmatch = string.gmatch
+if not pcall(string.gmatch, "", "") then
+	my_gmatch = luajit_remake_gmatch
+end
+
 local function _update_from_list(self)
 	for _, rel_path in ipairs(self.grug_files) do
 		local current_dir = self._mods
 		local parts = {}
-		for part in rel_path:gmatch("[^/]+") do
-			table.insert(parts, part)
+		for part in my_gmatch(rel_path, "[^/]+") do
+			push(parts, part)
 		end
 
-		-- Build tree
+		-- Build tree.
 		for i = 1, #parts - 1 do
 			local dir_name = parts[i]
 			current_dir.dirs[dir_name] = current_dir.dirs[dir_name] or GrugDir.new(dir_name)
@@ -288,7 +323,7 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	local global_variables, on_fns, helper_fns = {}, {}, {}
 	for _, stmt in ipairs(ast) do
 		if stmt.stmt_type == "VariableStatement" then
-			table.insert(global_variables, stmt)
+			push(global_variables, stmt)
 		elseif stmt.stmt_type == "OnFn" then
 			on_fns[stmt.fn_name] = stmt
 			stmt.fn_name = nil

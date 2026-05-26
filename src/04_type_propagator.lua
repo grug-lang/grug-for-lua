@@ -32,7 +32,7 @@ end
 local function parse_args(lst)
 	local args = {}
 	for _, obj in ipairs(lst or {}) do
-		table.insert(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
+		push(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
 	end
 	return args
 end
@@ -635,7 +635,7 @@ function TypePropagator:fill_on_fns()
 	local parser_names = {}
 	for _, s in ipairs(self.ast) do
 		if s.stmt_type == "OnFn" then
-			table.insert(parser_names, s.fn_name)
+			push(parser_names, s.fn_name)
 		end
 	end
 

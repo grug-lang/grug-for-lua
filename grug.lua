@@ -54,6 +54,10 @@ local function encode_nil(val) -- luacheck: ignore
 	return "null"
 end
 
+local function push(t, value)
+	t[#t + 1] = value
+end
+
 local function encode_table(val, stack)
 	local res = {}
 	stack = stack or {}
@@ -79,7 +83,7 @@ local function encode_table(val, stack)
 		end
 		-- Encode
 		for _, v in ipairs(val) do
-			table.insert(res, encode(v, stack))
+			push(res, encode(v, stack))
 		end
 		stack[val] = nil
 		return "[" .. table.concat(res, ",") .. "]"
@@ -89,7 +93,7 @@ local function encode_table(val, stack)
 			if type(k) ~= "string" then
 				error("invalid table: mixed or invalid key types")
 			end
-			table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
+			push(res, encode(k, stack) .. ":" .. encode(v, stack))
 		end
 		stack[val] = nil
 		return "{" .. table.concat(res, ",") .. "}"
@@ -97,7 +101,23 @@ local function encode_table(val, stack)
 end
 
 local function encode_string(val)
-	return '"' .. val:gsub('[%z\1-\31\\"]', escape_char) .. '"'
+	local res = {}
+	local n = 0
+
+	for i = 1, #val do
+		local c = val:sub(i, i)
+		local b = val:byte(i)
+
+		if b <= 31 or c == "\\" or c == '"' then
+			n = n + 1
+			res[n] = escape_char(c)
+		else
+			n = n + 1
+			res[n] = c
+		end
+	end
+
+	return '"' .. table.concat(res) .. '"'
 end
 
 local function encode_number(val)
@@ -449,12 +469,12 @@ local function tokenize(src)
 
 		-- 1. Double-character symbols (==, !=, >=, <=)
 		if DOUBLE_SYMBOLS[double_c] then
-			table.insert(tokens, { type = DOUBLE_SYMBOLS[double_c], value = double_c })
+			push(tokens, { type = DOUBLE_SYMBOLS[double_c], value = double_c })
 			i = i + 2
 
 		-- 2. Single-character symbols (+, -, (, ), etc.)
 		elseif SYMBOLS[c] then
-			table.insert(tokens, { type = SYMBOLS[c], value = c })
+			push(tokens, { type = SYMBOLS[c], value = c })
 			if c == "\n" then
 				line_number = line_number + 1
 			end
@@ -466,7 +486,7 @@ local function tokenize(src)
 
 			-- Single space
 			if next_c ~= " " then
-				table.insert(tokens, { type = "SPACE_TOKEN", value = " " })
+				push(tokens, { type = "SPACE_TOKEN", value = " " })
 				i = i + 1
 
 			-- Indentation block
@@ -488,7 +508,7 @@ local function tokenize(src)
 					)
 				end
 
-				table.insert(tokens, {
+				push(tokens, {
 					type = "INDENTATION_TOKEN",
 					value = string.rep(" ", spaces),
 				})
@@ -497,19 +517,19 @@ local function tokenize(src)
 		-- 4. Standard Strings
 		elseif c == '"' then
 			local str_val, new_i = tokenize_string(src, line_number, i)
-			table.insert(tokens, { type = "STRING_TOKEN", value = str_val })
+			push(tokens, { type = "STRING_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 5. Entity Strings (e"...")
 		elseif c == "e" and src:sub(i + 1, i + 1) == '"' then
 			local str_val, new_i = tokenize_string(src, line_number, i + 1)
-			table.insert(tokens, { type = "ENTITY_TOKEN", value = str_val })
+			push(tokens, { type = "ENTITY_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 6. Resource Strings (r"...")
 		elseif c == "r" and src:sub(i + 1, i + 1) == '"' then
 			local str_val, new_i = tokenize_string(src, line_number, i + 1)
-			table.insert(tokens, { type = "RESOURCE_TOKEN", value = str_val })
+			push(tokens, { type = "RESOURCE_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 7. Words (Identifiers and Keywords)
@@ -521,9 +541,9 @@ local function tokenize(src)
 
 			local word = src:sub(start, i - 1)
 			if KEYWORDS[word] then
-				table.insert(tokens, { type = KEYWORDS[word], value = word })
+				push(tokens, { type = KEYWORDS[word], value = word })
 			else
-				table.insert(tokens, { type = "WORD_TOKEN", value = word })
+				push(tokens, { type = "WORD_TOKEN", value = word })
 			end
 
 		-- 8. Numbers (Integers and Floats)
@@ -552,7 +572,7 @@ local function tokenize(src)
 				error("Missing digit after decimal point in '" .. num_str .. "'")
 			end
 
-			table.insert(tokens, { type = "NUMBER_TOKEN", value = num_str })
+			push(tokens, { type = "NUMBER_TOKEN", value = num_str })
 
 		-- 9. Comments (# ...)
 		elseif c == "#" then
@@ -580,7 +600,7 @@ local function tokenize(src)
 				error_at("A comment has trailing whitespace", line_number)
 			end
 
-			table.insert(tokens, { type = "COMMENT_TOKEN", value = src:sub(start, i - 1) })
+			push(tokens, { type = "COMMENT_TOKEN", value = src:sub(start, i - 1) })
 
 		-- 10. Fallback Error
 		else
@@ -832,7 +852,7 @@ function Parser:parse()
 			if seen_on_fn then
 				error("Move the global variable '" .. token.value .. "' so it is above the on_ functions")
 			end
-			table.insert(self.ast, self:parse_global_variable())
+			push(self.ast, self:parse_global_variable())
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed, newline_required = true, true
 		elseif
@@ -876,11 +896,11 @@ function Parser:parse()
 			if not newline_allowed then
 				error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx))
 			end
-			table.insert(self.ast, Nodes.EmptyLine())
+			push(self.ast, Nodes.EmptyLine())
 			self.idx = self.idx + 1
 			newline_allowed, newline_required = false, false
 		elseif token.type == "COMMENT_TOKEN" then
-			table.insert(self.ast, Nodes.Comment(token.value))
+			push(self.ast, Nodes.Comment(token.value))
 			self.idx = self.idx + 1
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed = true
@@ -913,7 +933,7 @@ function Parser:parse_arguments()
 		if arg_type == "RESOURCE" or arg_type == "ENTITY" then
 			error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type")
 		end
-		table.insert(args, Nodes.Argument(name, arg_type, type_name))
+		push(args, Nodes.Argument(name, arg_type, type_name))
 
 		if self.idx <= #self.tokens and self:peek().type == "COMMA_TOKEN" then
 			self.idx = self.idx + 1
@@ -954,7 +974,7 @@ function Parser:parse_helper_fn()
 	self.indentation = 0
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
-	table.insert(self.ast, fn)
+	push(self.ast, fn)
 	return fn
 end
 
@@ -968,7 +988,7 @@ function Parser:parse_on_fn()
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
-	table.insert(self.ast, fn)
+	push(self.ast, fn)
 	return fn
 end
 
@@ -990,11 +1010,11 @@ function Parser:parse_statements()
 			end
 			self.idx = self.idx + 1
 			newline_allowed = false
-			table.insert(stmts, Nodes.EmptyLine())
+			push(stmts, Nodes.EmptyLine())
 		else
 			newline_allowed = true
 			self:consume_indentation()
-			table.insert(stmts, self:parse_statement())
+			push(stmts, self:parse_statement())
 			self:consume_type("NEWLINE_TOKEN")
 		end
 	end
@@ -1252,7 +1272,7 @@ function Parser:parse_call()
 			res = call
 		else
 			repeat
-				table.insert(call.arguments, self:parse_expression())
+				push(call.arguments, self:parse_expression())
 				if self:peek().type == "COMMA_TOKEN" then
 					self.idx = self.idx + 1
 					self:consume_space()
@@ -1366,7 +1386,7 @@ end
 local function parse_args(lst)
 	local args = {}
 	for _, obj in ipairs(lst or {}) do
-		table.insert(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
+		push(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
 	end
 	return args
 end
@@ -1969,7 +1989,7 @@ function TypePropagator:fill_on_fns()
 	local parser_names = {}
 	for _, s in ipairs(self.ast) do
 		if s.stmt_type == "OnFn" then
-			table.insert(parser_names, s.fn_name)
+			push(parser_names, s.fn_name)
 		end
 	end
 
@@ -2087,7 +2107,7 @@ end
 local function map_list(list, fn)
 	local result = {}
 	for _, v in ipairs(list or {}) do
-		table.insert(result, fn(v))
+		push(result, fn(v))
 	end
 	return (#result > 0) and result or nil
 end
@@ -2237,7 +2257,7 @@ end
 -- grug Output
 -- ======================
 local function write(text, output)
-	table.insert(output, text)
+	push(output, text)
 end
 
 local function indent(indentation, output)
@@ -2605,7 +2625,11 @@ function Transpiler:emit_call_expr(expr)
 		return "fns." .. fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	else
 		-- Game functions receive e.state as their first argument (the `_state` slot).
-		table.insert(arg_strs, 1, "e.state")
+		local new_args = { "e.state" }
+		for i = 1, #arg_strs do
+			new_args[i + 1] = arg_strs[i]
+		end
+		arg_strs = new_args
 		return fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	end
 end
@@ -2659,7 +2683,7 @@ function Transpiler:emit_stmt(stmt, indentation)
 		-- repeat, so execution falls through to the `if _brk` check (which
 		-- is false) and then loops back to re-evaluate the while condition.
 		--
-		-- A `break` emits `_brk = true` followed by `do break end`.  After
+		-- A `break` emits `_brk = true` followed by `do break end`. After
 		-- the repeat exits, `if _brk then break end` fires a real break on
 		-- the outer while.
 		--
@@ -3188,15 +3212,50 @@ function grug:_recompile_with_hot_reload(rel_path, existing)
 	return new_file
 end
 
+local function luajit_remake_gmatch(s, pattern)
+	-- This implementation only supports the pattern "[^/]+" (split by '/').
+	assert(pattern == "[^/]+", "luajit_remake_gmatch only supports '[^/]+'")
+
+	local i = 1
+	local len = #s
+
+	return function()
+		-- Skip leading slashes.
+		while i <= len and s:sub(i, i) == "/" do
+			i = i + 1
+		end
+
+		if i > len then
+			return nil
+		end
+
+		local start = i
+
+		-- Consume until next slash.
+		while i <= len and s:sub(i, i) ~= "/" do
+			i = i + 1
+		end
+
+		return s:sub(start, i - 1)
+	end
+end
+
+-- luajit-remake has not implemented string.gmatch,
+-- so it prints an error and returns false when called.
+local my_gmatch = string.gmatch
+if not pcall(string.gmatch, "", "") then
+	my_gmatch = luajit_remake_gmatch
+end
+
 local function _update_from_list(self)
 	for _, rel_path in ipairs(self.grug_files) do
 		local current_dir = self._mods
 		local parts = {}
-		for part in rel_path:gmatch("[^/]+") do
-			table.insert(parts, part)
+		for part in my_gmatch(rel_path, "[^/]+") do
+			push(parts, part)
 		end
 
-		-- Build tree
+		-- Build tree.
 		for i = 1, #parts - 1 do
 			local dir_name = parts[i]
 			current_dir.dirs[dir_name] = current_dir.dirs[dir_name] or GrugDir.new(dir_name)
@@ -3390,7 +3449,7 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	local global_variables, on_fns, helper_fns = {}, {}, {}
 	for _, stmt in ipairs(ast) do
 		if stmt.stmt_type == "VariableStatement" then
-			table.insert(global_variables, stmt)
+			push(global_variables, stmt)
 		elseif stmt.stmt_type == "OnFn" then
 			on_fns[stmt.fn_name] = stmt
 			stmt.fn_name = nil

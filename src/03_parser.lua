@@ -238,7 +238,7 @@ function Parser:parse()
 			if seen_on_fn then
 				error("Move the global variable '" .. token.value .. "' so it is above the on_ functions")
 			end
-			table.insert(self.ast, self:parse_global_variable())
+			push(self.ast, self:parse_global_variable())
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed, newline_required = true, true
 		elseif
@@ -282,11 +282,11 @@ function Parser:parse()
 			if not newline_allowed then
 				error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx))
 			end
-			table.insert(self.ast, Nodes.EmptyLine())
+			push(self.ast, Nodes.EmptyLine())
 			self.idx = self.idx + 1
 			newline_allowed, newline_required = false, false
 		elseif token.type == "COMMENT_TOKEN" then
-			table.insert(self.ast, Nodes.Comment(token.value))
+			push(self.ast, Nodes.Comment(token.value))
 			self.idx = self.idx + 1
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed = true
@@ -319,7 +319,7 @@ function Parser:parse_arguments()
 		if arg_type == "RESOURCE" or arg_type == "ENTITY" then
 			error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type")
 		end
-		table.insert(args, Nodes.Argument(name, arg_type, type_name))
+		push(args, Nodes.Argument(name, arg_type, type_name))
 
 		if self.idx <= #self.tokens and self:peek().type == "COMMA_TOKEN" then
 			self.idx = self.idx + 1
@@ -360,7 +360,7 @@ function Parser:parse_helper_fn()
 	self.indentation = 0
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
-	table.insert(self.ast, fn)
+	push(self.ast, fn)
 	return fn
 end
 
@@ -374,7 +374,7 @@ function Parser:parse_on_fn()
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
-	table.insert(self.ast, fn)
+	push(self.ast, fn)
 	return fn
 end
 
@@ -396,11 +396,11 @@ function Parser:parse_statements()
 			end
 			self.idx = self.idx + 1
 			newline_allowed = false
-			table.insert(stmts, Nodes.EmptyLine())
+			push(stmts, Nodes.EmptyLine())
 		else
 			newline_allowed = true
 			self:consume_indentation()
-			table.insert(stmts, self:parse_statement())
+			push(stmts, self:parse_statement())
 			self:consume_type("NEWLINE_TOKEN")
 		end
 	end
@@ -658,7 +658,7 @@ function Parser:parse_call()
 			res = call
 		else
 			repeat
-				table.insert(call.arguments, self:parse_expression())
+				push(call.arguments, self:parse_expression())
 				if self:peek().type == "COMMA_TOKEN" then
 					self.idx = self.idx + 1
 					self:consume_space()

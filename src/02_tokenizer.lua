@@ -76,12 +76,12 @@ local function tokenize(src)
 
 		-- 1. Double-character symbols (==, !=, >=, <=)
 		if DOUBLE_SYMBOLS[double_c] then
-			table.insert(tokens, { type = DOUBLE_SYMBOLS[double_c], value = double_c })
+			push(tokens, { type = DOUBLE_SYMBOLS[double_c], value = double_c })
 			i = i + 2
 
 		-- 2. Single-character symbols (+, -, (, ), etc.)
 		elseif SYMBOLS[c] then
-			table.insert(tokens, { type = SYMBOLS[c], value = c })
+			push(tokens, { type = SYMBOLS[c], value = c })
 			if c == "\n" then
 				line_number = line_number + 1
 			end
@@ -93,7 +93,7 @@ local function tokenize(src)
 
 			-- Single space
 			if next_c ~= " " then
-				table.insert(tokens, { type = "SPACE_TOKEN", value = " " })
+				push(tokens, { type = "SPACE_TOKEN", value = " " })
 				i = i + 1
 
 			-- Indentation block
@@ -115,7 +115,7 @@ local function tokenize(src)
 					)
 				end
 
-				table.insert(tokens, {
+				push(tokens, {
 					type = "INDENTATION_TOKEN",
 					value = string.rep(" ", spaces),
 				})
@@ -124,19 +124,19 @@ local function tokenize(src)
 		-- 4. Standard Strings
 		elseif c == '"' then
 			local str_val, new_i = tokenize_string(src, line_number, i)
-			table.insert(tokens, { type = "STRING_TOKEN", value = str_val })
+			push(tokens, { type = "STRING_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 5. Entity Strings (e"...")
 		elseif c == "e" and src:sub(i + 1, i + 1) == '"' then
 			local str_val, new_i = tokenize_string(src, line_number, i + 1)
-			table.insert(tokens, { type = "ENTITY_TOKEN", value = str_val })
+			push(tokens, { type = "ENTITY_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 6. Resource Strings (r"...")
 		elseif c == "r" and src:sub(i + 1, i + 1) == '"' then
 			local str_val, new_i = tokenize_string(src, line_number, i + 1)
-			table.insert(tokens, { type = "RESOURCE_TOKEN", value = str_val })
+			push(tokens, { type = "RESOURCE_TOKEN", value = str_val })
 			i = new_i + 1
 
 		-- 7. Words (Identifiers and Keywords)
@@ -148,9 +148,9 @@ local function tokenize(src)
 
 			local word = src:sub(start, i - 1)
 			if KEYWORDS[word] then
-				table.insert(tokens, { type = KEYWORDS[word], value = word })
+				push(tokens, { type = KEYWORDS[word], value = word })
 			else
-				table.insert(tokens, { type = "WORD_TOKEN", value = word })
+				push(tokens, { type = "WORD_TOKEN", value = word })
 			end
 
 		-- 8. Numbers (Integers and Floats)
@@ -179,7 +179,7 @@ local function tokenize(src)
 				error("Missing digit after decimal point in '" .. num_str .. "'")
 			end
 
-			table.insert(tokens, { type = "NUMBER_TOKEN", value = num_str })
+			push(tokens, { type = "NUMBER_TOKEN", value = num_str })
 
 		-- 9. Comments (# ...)
 		elseif c == "#" then
@@ -207,7 +207,7 @@ local function tokenize(src)
 				error_at("A comment has trailing whitespace", line_number)
 			end
 
-			table.insert(tokens, { type = "COMMENT_TOKEN", value = src:sub(start, i - 1) })
+			push(tokens, { type = "COMMENT_TOKEN", value = src:sub(start, i - 1) })
 
 		-- 10. Fallback Error
 		else

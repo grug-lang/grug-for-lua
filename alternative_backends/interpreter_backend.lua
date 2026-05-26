@@ -347,6 +347,10 @@ function _InterpreterEntity:_run_logical_expr(logical_expr)
 	return right
 end
 
+local function push(t, value)
+	t[#t + 1] = value
+end
+
 function _InterpreterEntity:_run_call_expr(call_expr)
 	local args = {}
 	for _, arg in ipairs(call_expr.arguments) do
@@ -354,7 +358,7 @@ function _InterpreterEntity:_run_call_expr(call_expr)
 		if self._flow then
 			return
 		end
-		table.insert(args, val)
+		push(args, val)
 	end
 
 	if string.sub(call_expr.fn_name, 1, 7) == "helper_" then

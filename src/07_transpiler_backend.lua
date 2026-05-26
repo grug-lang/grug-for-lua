@@ -132,7 +132,11 @@ function Transpiler:emit_call_expr(expr)
 		return "fns." .. fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	else
 		-- Game functions receive e.state as their first argument (the `_state` slot).
-		table.insert(arg_strs, 1, "e.state")
+		local new_args = { "e.state" }
+		for i = 1, #arg_strs do
+			new_args[i + 1] = arg_strs[i]
+		end
+		arg_strs = new_args
 		return fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	end
 end
