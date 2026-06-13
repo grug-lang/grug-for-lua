@@ -12,13 +12,15 @@ jobs:
     strategy:
       matrix:
         lua:
-          - luajit
           - lua5.1
           - lua5.2
           - lua5.3
           - lua5.4
-          - luaj-jse-2.0.3
+          # - lua5.5 # TODO: Benchmark
+          - luajit
+          - luajit -joff
           - luajit-remake
+          - luaj-jse-2.0.3
 
     steps:
       - name: Checkout repo
