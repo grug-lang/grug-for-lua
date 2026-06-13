@@ -118,9 +118,6 @@ function TypePropagator:get_variable(name)
 end
 
 function TypePropagator:add_global_variable(name, var_type, type_name)
-	if self.global_variables[name] then
-		error("The global variable '" .. name .. "' shadows an earlier global variable")
-	end
 	self.global_variables[name] = Variable(name, var_type, type_name)
 end
 
@@ -383,13 +380,37 @@ function TypePropagator:fill_call_expr(expr)
 	error("The game function '" .. fn_name .. "' was not declared by mod_api.json")
 end
 
+local OPERATOR_STR = {
+	GREATER_OR_EQUAL_TOKEN = ">=",
+	GREATER_TOKEN = ">",
+	LESS_OR_EQUAL_TOKEN = "<=",
+	LESS_TOKEN = "<",
+	EQUALS_TOKEN = "==",
+	NOT_EQUALS_TOKEN = "!=",
+	AND_TOKEN = "and",
+	OR_TOKEN = "or",
+	PLUS_TOKEN = "+",
+	MINUS_TOKEN = "-",
+	MULTIPLICATION_TOKEN = "*",
+	DIVISION_TOKEN = "/",
+}
+
 function TypePropagator:fill_binary_expr(expr)
 	local left, right, op = expr.left_expr, expr.right_expr, expr.operator
 	self:fill_expr(left)
 	self:fill_expr(right)
 
 	if left.result.type == "STRING" and op ~= "EQUALS_TOKEN" and op ~= "NOT_EQUALS_TOKEN" then
-		error("You can't use the " .. op .. " operator on a string")
+		if op == "PLUS_TOKEN" then
+			error(self:new_error("cannot add strings with '+'", expr.op_span))
+		else
+			error(
+				self:new_error(
+					"You can't use the " .. (OPERATOR_STR[op] or op) .. " operator on a string",
+					expr.op_span
+				)
+			)
+		end
 	end
 
 	local is_id = (left.result.type_name == "id" or right.result.type_name == "id")
@@ -405,6 +426,7 @@ function TypePropagator:fill_binary_expr(expr)
 	end
 
 	expr.result = {}
+
 	if op == "EQUALS_TOKEN" or op == "NOT_EQUALS_TOKEN" then
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	elseif
@@ -414,18 +436,21 @@ function TypePropagator:fill_binary_expr(expr)
 		or op == "LESS_TOKEN"
 	then
 		if left.result.type ~= "NUMBER" then
-			error("'" .. op .. "' operator expects number")
+			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span))
 		end
+
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	elseif op == "AND_TOKEN" or op == "OR_TOKEN" then
 		if left.result.type ~= "BOOL" then
-			error("'" .. op .. "' operator expects bool")
+			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects bool", expr.op_span))
 		end
+
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	else
 		if left.result.type ~= "NUMBER" then
-			error("'" .. op .. "' operator expects number")
+			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span))
 		end
+
 		expr.result.type, expr.result.type_name = left.result.type, left.result.type_name
 	end
 end
@@ -460,11 +485,21 @@ function TypePropagator:fill_expr(expr)
 		if op == "NOT_TOKEN" then
 			if expr.result.type ~= "BOOL" then
 				error(
-					"Found 'not' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a bool"
+					self:new_error(
+						"Found 'not' before "
+							.. tostring(expr.result.type_name)
+							.. ", but it can only be put before a bool",
+						expr.op_span
+					)
 				)
 			end
 		elseif expr.result.type ~= "NUMBER" then
-			error("Found '-' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a number")
+			error(
+				self:new_error(
+					"Found '-' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a number",
+					expr.op_span
+				)
+			)
 		end
 	elseif expr.operator and expr.left_expr then
 		self:fill_binary_expr(expr)
@@ -608,15 +643,19 @@ end
 
 function TypePropagator:fill_global_variables()
 	self:add_global_variable("me", "ID", self.file_entity_type)
+
 	for _, stmt in ipairs(self.ast) do
 		if stmt.stmt_type == "VariableStatement" then
 			self.current_global = stmt
 			stmt.used_host_fns = {}
+
 			self:check_global_expr(stmt.expr, stmt.name)
 			self:fill_expr(stmt.expr)
+
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
 				error("Global variables can't be assigned 'me'")
 			end
+
 			if are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name) then
 				error(
 					self:new_error(
@@ -630,6 +669,16 @@ function TypePropagator:fill_global_variables()
 					)
 				)
 			end
+
+			if self.global_variables[stmt.name] then
+				error(
+					self:new_error(
+						"The global variable '" .. stmt.name .. "' shadows an earlier global variable",
+						stmt.decl_span
+					)
+				)
+			end
+
 			self:add_global_variable(stmt.name, stmt.type, stmt.type_name)
 			self.current_global = nil
 		end

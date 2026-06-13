@@ -40,7 +40,7 @@ local Nodes = {
 	Parenthesized = function(expr)
 		return { expr = expr }
 	end,
-	Variable = function(name, t, tname, expr, expr_span)
+	Variable = function(name, t, tname, expr, expr_span, decl_span)
 		return {
 			stmt_type = "VariableStatement",
 			name = name,
@@ -48,6 +48,7 @@ local Nodes = {
 			type_name = tname,
 			expr = expr,
 			expr_span = expr_span,
+			decl_span = decl_span,
 		}
 	end,
 	CallStmt = function(expr)
@@ -256,9 +257,6 @@ function Parser:parse()
 		local token = self:peek()
 
 		if token.type == "WORD_TOKEN" then
-			self:consume_type("WORD_TOKEN")
-			self:consume_type("COLON_TOKEN")
-
 			if seen_export_fn then
 				error("Move the global variable '" .. token.value .. "' so it is above the export functions")
 			end
@@ -482,7 +480,7 @@ function Parser:parse_statement()
 	elseif tok.type == "BREAK_TOKEN" or tok.type == "CONTINUE_TOKEN" then
 		if self.loop_depth == 0 then
 			local word = tok.type == "BREAK_TOKEN" and "break" or "continue"
-			error("There is a " .. word .. " statement that isn't inside of a while loop")
+			error(self:new_error("There is a " .. word .. " statement that isn't inside of a while loop", tok))
 		end
 		self.idx = self.idx + 1
 		res = tok.type == "BREAK_TOKEN" and Nodes.Break() or Nodes.Continue()
@@ -507,20 +505,22 @@ end
 
 function Parser:parse_local_variable()
 	local start_idx = self.idx
-	local name = self:consume().value
+	local name_token = self:consume()
+	local name = name_token.value
 	local v_type, v_tname
 
 	if self:peek().type == "COLON_TOKEN" then
 		self.idx = self.idx + 1
+
 		if name == "me" then
-			error(
-				"The local variable 'me' has to have its name changed to something else, since grug already declares that variable"
-			)
+			error(self:new_error("variable cannot be named 'me'", name_token))
 		end
+
 		self:consume_space()
 		self:assert_type("WORD_TOKEN")
 		v_tname = self:consume().value
 		v_type = get_type(v_tname)
+
 		if v_type == "RESOURCE" or v_type == "ENTITY" then
 			error("The variable '" .. name .. "' can't have '" .. v_tname .. "' as its type")
 		end
@@ -531,34 +531,41 @@ function Parser:parse_local_variable()
 			"The variable '" .. name .. "' was not assigned a value on line " .. self:get_token_line_number(start_idx)
 		)
 	end
+
 	self:consume_space()
 	self:consume_type("ASSIGNMENT_TOKEN")
+
 	if name == "me" then
-		error("Assigning a new value to the entity's 'me' variable is not allowed")
+		error(self:new_error("Assigning a new value to 'me' is not allowed", name_token))
 	end
+
 	self:consume_space()
+
 	local expr_token = self:peek()
+
 	return Nodes.Variable(
 		name,
 		v_type,
 		v_tname,
 		self:parse_expression(),
-		{ line = expr_token.line, pos = expr_token.pos }
+		{ line = expr_token.line, pos = expr_token.pos },
+		{ line = name_token.line, pos = name_token.pos }
 	)
 end
 
 function Parser:parse_global_variable()
 	local start_idx = self.idx
-	local name = self:consume().value
+	local name_token = self:consume()
+	local name = name_token.value
+
 	if name == "me" then
-		error(
-			"The global variable 'me' has to have its name changed to something else, since grug already declares that variable"
-		)
+		error(self:new_error("variable cannot be named 'me'", name_token))
 	end
 
 	self:consume_type("COLON_TOKEN")
 	self:consume_space()
 	self:assert_type("WORD_TOKEN")
+
 	local t_token = self:consume()
 	local t_name = t_token.value
 	local g_type = get_type(t_name)
@@ -566,6 +573,7 @@ function Parser:parse_global_variable()
 	if g_type == "RESOURCE" or g_type == "ENTITY" then
 		error("The global variable '" .. name .. "' can't have '" .. t_name .. "' as its type")
 	end
+
 	if self:peek().type ~= "SPACE_TOKEN" then
 		error(
 			"The global variable '"
@@ -578,13 +586,16 @@ function Parser:parse_global_variable()
 	self:consume_space()
 	self:consume_type("ASSIGNMENT_TOKEN")
 	self:consume_space()
+
 	local expr_token = self:peek()
+
 	return Nodes.Variable(
 		name,
 		g_type,
 		t_name,
 		self:parse_expression(),
-		{ line = expr_token.line, pos = expr_token.pos }
+		{ line = expr_token.line, pos = expr_token.pos },
+		{ line = name_token.line, pos = name_token.pos }
 	)
 end
 
@@ -727,6 +738,10 @@ function Parser:parse_unary()
 			self:consume_space()
 		end
 		res = Nodes.Unary(t.type, self:parse_unary())
+		res.op_span = {
+			line = t.line,
+			pos = t.pos,
+		}
 	else
 		res = self:parse_call()
 	end
@@ -744,9 +759,17 @@ local function binary_op(next_fn, ops, ctor)
 				local op_t = self:peek(1)
 				if ops[op_t.type] then
 					self.idx = self.idx + 1
-					local op = self:consume().type
+
+					local consumed = self:consume()
+					local op = consumed.type
+
 					self:consume_space()
+
 					expr = ctor(expr, op, next_fn(self))
+					expr.op_span = {
+						line = consumed.line,
+						pos = consumed.pos,
+					}
 				else
 					break
 				end

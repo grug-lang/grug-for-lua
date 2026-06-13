@@ -736,7 +736,7 @@ local Nodes = {
 	Parenthesized = function(expr)
 		return { expr = expr }
 	end,
-	Variable = function(name, t, tname, expr, expr_span)
+	Variable = function(name, t, tname, expr, expr_span, decl_span)
 		return {
 			stmt_type = "VariableStatement",
 			name = name,
@@ -744,6 +744,7 @@ local Nodes = {
 			type_name = tname,
 			expr = expr,
 			expr_span = expr_span,
+			decl_span = decl_span,
 		}
 	end,
 	CallStmt = function(expr)
@@ -952,9 +953,6 @@ function Parser:parse()
 		local token = self:peek()
 
 		if token.type == "WORD_TOKEN" then
-			self:consume_type("WORD_TOKEN")
-			self:consume_type("COLON_TOKEN")
-
 			if seen_export_fn then
 				error("Move the global variable '" .. token.value .. "' so it is above the export functions")
 			end
@@ -1178,7 +1176,7 @@ function Parser:parse_statement()
 	elseif tok.type == "BREAK_TOKEN" or tok.type == "CONTINUE_TOKEN" then
 		if self.loop_depth == 0 then
 			local word = tok.type == "BREAK_TOKEN" and "break" or "continue"
-			error("There is a " .. word .. " statement that isn't inside of a while loop")
+			error(self:new_error("There is a " .. word .. " statement that isn't inside of a while loop", tok))
 		end
 		self.idx = self.idx + 1
 		res = tok.type == "BREAK_TOKEN" and Nodes.Break() or Nodes.Continue()
@@ -1203,20 +1201,22 @@ end
 
 function Parser:parse_local_variable()
 	local start_idx = self.idx
-	local name = self:consume().value
+	local name_token = self:consume()
+	local name = name_token.value
 	local v_type, v_tname
 
 	if self:peek().type == "COLON_TOKEN" then
 		self.idx = self.idx + 1
+
 		if name == "me" then
-			error(
-				"The local variable 'me' has to have its name changed to something else, since grug already declares that variable"
-			)
+			error(self:new_error("variable cannot be named 'me'", name_token))
 		end
+
 		self:consume_space()
 		self:assert_type("WORD_TOKEN")
 		v_tname = self:consume().value
 		v_type = get_type(v_tname)
+
 		if v_type == "RESOURCE" or v_type == "ENTITY" then
 			error("The variable '" .. name .. "' can't have '" .. v_tname .. "' as its type")
 		end
@@ -1227,34 +1227,41 @@ function Parser:parse_local_variable()
 			"The variable '" .. name .. "' was not assigned a value on line " .. self:get_token_line_number(start_idx)
 		)
 	end
+
 	self:consume_space()
 	self:consume_type("ASSIGNMENT_TOKEN")
+
 	if name == "me" then
-		error("Assigning a new value to the entity's 'me' variable is not allowed")
+		error(self:new_error("Assigning a new value to 'me' is not allowed", name_token))
 	end
+
 	self:consume_space()
+
 	local expr_token = self:peek()
+
 	return Nodes.Variable(
 		name,
 		v_type,
 		v_tname,
 		self:parse_expression(),
-		{ line = expr_token.line, pos = expr_token.pos }
+		{ line = expr_token.line, pos = expr_token.pos },
+		{ line = name_token.line, pos = name_token.pos }
 	)
 end
 
 function Parser:parse_global_variable()
 	local start_idx = self.idx
-	local name = self:consume().value
+	local name_token = self:consume()
+	local name = name_token.value
+
 	if name == "me" then
-		error(
-			"The global variable 'me' has to have its name changed to something else, since grug already declares that variable"
-		)
+		error(self:new_error("variable cannot be named 'me'", name_token))
 	end
 
 	self:consume_type("COLON_TOKEN")
 	self:consume_space()
 	self:assert_type("WORD_TOKEN")
+
 	local t_token = self:consume()
 	local t_name = t_token.value
 	local g_type = get_type(t_name)
@@ -1262,6 +1269,7 @@ function Parser:parse_global_variable()
 	if g_type == "RESOURCE" or g_type == "ENTITY" then
 		error("The global variable '" .. name .. "' can't have '" .. t_name .. "' as its type")
 	end
+
 	if self:peek().type ~= "SPACE_TOKEN" then
 		error(
 			"The global variable '"
@@ -1274,13 +1282,16 @@ function Parser:parse_global_variable()
 	self:consume_space()
 	self:consume_type("ASSIGNMENT_TOKEN")
 	self:consume_space()
+
 	local expr_token = self:peek()
+
 	return Nodes.Variable(
 		name,
 		g_type,
 		t_name,
 		self:parse_expression(),
-		{ line = expr_token.line, pos = expr_token.pos }
+		{ line = expr_token.line, pos = expr_token.pos },
+		{ line = name_token.line, pos = name_token.pos }
 	)
 end
 
@@ -1423,6 +1434,10 @@ function Parser:parse_unary()
 			self:consume_space()
 		end
 		res = Nodes.Unary(t.type, self:parse_unary())
+		res.op_span = {
+			line = t.line,
+			pos = t.pos,
+		}
 	else
 		res = self:parse_call()
 	end
@@ -1440,9 +1455,17 @@ local function binary_op(next_fn, ops, ctor)
 				local op_t = self:peek(1)
 				if ops[op_t.type] then
 					self.idx = self.idx + 1
-					local op = self:consume().type
+
+					local consumed = self:consume()
+					local op = consumed.type
+
 					self:consume_space()
+
 					expr = ctor(expr, op, next_fn(self))
+					expr.op_span = {
+						line = consumed.line,
+						pos = consumed.pos,
+					}
 				else
 					break
 				end
@@ -1595,9 +1618,6 @@ function TypePropagator:get_variable(name)
 end
 
 function TypePropagator:add_global_variable(name, var_type, type_name)
-	if self.global_variables[name] then
-		error("The global variable '" .. name .. "' shadows an earlier global variable")
-	end
 	self.global_variables[name] = Variable(name, var_type, type_name)
 end
 
@@ -1860,13 +1880,37 @@ function TypePropagator:fill_call_expr(expr)
 	error("The game function '" .. fn_name .. "' was not declared by mod_api.json")
 end
 
+local OPERATOR_STR = {
+	GREATER_OR_EQUAL_TOKEN = ">=",
+	GREATER_TOKEN = ">",
+	LESS_OR_EQUAL_TOKEN = "<=",
+	LESS_TOKEN = "<",
+	EQUALS_TOKEN = "==",
+	NOT_EQUALS_TOKEN = "!=",
+	AND_TOKEN = "and",
+	OR_TOKEN = "or",
+	PLUS_TOKEN = "+",
+	MINUS_TOKEN = "-",
+	MULTIPLICATION_TOKEN = "*",
+	DIVISION_TOKEN = "/",
+}
+
 function TypePropagator:fill_binary_expr(expr)
 	local left, right, op = expr.left_expr, expr.right_expr, expr.operator
 	self:fill_expr(left)
 	self:fill_expr(right)
 
 	if left.result.type == "STRING" and op ~= "EQUALS_TOKEN" and op ~= "NOT_EQUALS_TOKEN" then
-		error("You can't use the " .. op .. " operator on a string")
+		if op == "PLUS_TOKEN" then
+			error(self:new_error("cannot add strings with '+'", expr.op_span))
+		else
+			error(
+				self:new_error(
+					"You can't use the " .. (OPERATOR_STR[op] or op) .. " operator on a string",
+					expr.op_span
+				)
+			)
+		end
 	end
 
 	local is_id = (left.result.type_name == "id" or right.result.type_name == "id")
@@ -1882,6 +1926,7 @@ function TypePropagator:fill_binary_expr(expr)
 	end
 
 	expr.result = {}
+
 	if op == "EQUALS_TOKEN" or op == "NOT_EQUALS_TOKEN" then
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	elseif
@@ -1891,18 +1936,21 @@ function TypePropagator:fill_binary_expr(expr)
 		or op == "LESS_TOKEN"
 	then
 		if left.result.type ~= "NUMBER" then
-			error("'" .. op .. "' operator expects number")
+			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span))
 		end
+
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	elseif op == "AND_TOKEN" or op == "OR_TOKEN" then
 		if left.result.type ~= "BOOL" then
-			error("'" .. op .. "' operator expects bool")
+			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects bool", expr.op_span))
 		end
+
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	else
 		if left.result.type ~= "NUMBER" then
-			error("'" .. op .. "' operator expects number")
+			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span))
 		end
+
 		expr.result.type, expr.result.type_name = left.result.type, left.result.type_name
 	end
 end
@@ -1937,11 +1985,21 @@ function TypePropagator:fill_expr(expr)
 		if op == "NOT_TOKEN" then
 			if expr.result.type ~= "BOOL" then
 				error(
-					"Found 'not' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a bool"
+					self:new_error(
+						"Found 'not' before "
+							.. tostring(expr.result.type_name)
+							.. ", but it can only be put before a bool",
+						expr.op_span
+					)
 				)
 			end
 		elseif expr.result.type ~= "NUMBER" then
-			error("Found '-' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a number")
+			error(
+				self:new_error(
+					"Found '-' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a number",
+					expr.op_span
+				)
+			)
 		end
 	elseif expr.operator and expr.left_expr then
 		self:fill_binary_expr(expr)
@@ -2085,15 +2143,19 @@ end
 
 function TypePropagator:fill_global_variables()
 	self:add_global_variable("me", "ID", self.file_entity_type)
+
 	for _, stmt in ipairs(self.ast) do
 		if stmt.stmt_type == "VariableStatement" then
 			self.current_global = stmt
 			stmt.used_host_fns = {}
+
 			self:check_global_expr(stmt.expr, stmt.name)
 			self:fill_expr(stmt.expr)
+
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
 				error("Global variables can't be assigned 'me'")
 			end
+
 			if are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name) then
 				error(
 					self:new_error(
@@ -2107,6 +2169,16 @@ function TypePropagator:fill_global_variables()
 					)
 				)
 			end
+
+			if self.global_variables[stmt.name] then
+				error(
+					self:new_error(
+						"The global variable '" .. stmt.name .. "' shadows an earlier global variable",
+						stmt.decl_span
+					)
+				)
+			end
+
 			self:add_global_variable(stmt.name, stmt.type, stmt.type_name)
 			self.current_global = nil
 		end
