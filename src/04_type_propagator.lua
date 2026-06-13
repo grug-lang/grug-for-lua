@@ -37,7 +37,7 @@ local function parse_args(lst)
 	return args
 end
 
-local function parse_game_fn(fn_name, fn)
+local function parse_host_fn(fn_name, fn)
 	return GameFn(fn_name, parse_args(fn.arguments), fn.return_type and get_type(fn.return_type) or nil, fn.return_type)
 end
 
@@ -48,43 +48,65 @@ end
 local TypePropagator = {}
 TypePropagator.__index = TypePropagator
 
-function TypePropagator.new(ast, mod, entity_type, mod_api)
+function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path)
 	local self = setmetatable({
 		ast = ast,
 		mod = mod,
 		file_entity_type = entity_type,
 		mod_api = mod_api,
-		on_fns = {},
-		helper_fns = {},
+		src = src or "",
+		file_path = file_path or "",
+		export_fns = {},
+		local_fns = {},
 		fn_return_type = nil,
 		fn_return_type_name = nil,
 		filled_fn_name = nil,
 		local_variables = {},
 		global_variables = {},
-		game_functions = {},
-		entity_on_functions = {},
+		host_functions = {},
+		entity_export_functions = {},
 	}, TypePropagator)
 
 	for _, s in ipairs(ast) do
 		if s.stmt_type == "OnFn" then
-			self.on_fns[s.fn_name] = s
+			self.export_fns[s.fn_name] = s
 		elseif s.stmt_type == "HelperFn" then
-			self.helper_fns[s.fn_name] = s
+			self.local_fns[s.fn_name] = s
 		end
 	end
 
-	if mod_api.game_functions then
-		for fn_name, fn in pairs(mod_api.game_functions) do
-			self.game_functions[fn_name] = parse_game_fn(fn_name, fn)
+	if mod_api.host_functions then
+		for fn_name, fn in pairs(mod_api.host_functions) do
+			self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
 		end
 	end
 
 	local entity_cfg = mod_api.entities and mod_api.entities[entity_type]
-	if entity_cfg and entity_cfg.on_functions then
-		self.entity_on_functions = entity_cfg.on_functions
+	if entity_cfg and entity_cfg.export_functions then
+		self.entity_export_functions = entity_cfg.export_functions
 	end
 
 	return self
+end
+
+-- Builds an error message pointing at `span` (a table with `line` and `pos` fields).
+function TypePropagator:new_error(msg, span)
+	local current_function = self.filled_fn_name or "member scope"
+
+	local line = span and span.line or 1
+	local column = span and span.pos and get_column(self.src, span.pos) or 1
+	local source_line = span and span.pos and get_source_line(self.src, span.pos) or ""
+
+	return string.format(
+		"  in %s (%s:%d:%d)\nError: %s\n%d $ %s",
+		current_function,
+		self.file_path,
+		line,
+		column,
+		msg,
+		line,
+		source_line
+	)
 end
 
 -- --------------------------------------------------------------------------
@@ -331,19 +353,19 @@ function TypePropagator:fill_call_expr(expr)
 	end
 
 	local fn_name = expr.fn_name
-	local target_fn = self.helper_fns[fn_name] or self.game_functions[fn_name]
+	local target_fn = self.local_fns[fn_name] or self.host_functions[fn_name]
 
 	if target_fn then
 		expr.result = { type = target_fn.return_type, type_name = target_fn.return_type_name }
 		self:check_arguments(target_fn.arguments, expr)
 
-		if self.game_functions[fn_name] then
+		if self.host_functions[fn_name] then
 			if self.current_fn then
-				self.current_fn.used_game_fns[fn_name] = true
+				self.current_fn.used_host_fns[fn_name] = true
 			elseif self.current_global then
-				self.current_global.used_game_fns[fn_name] = true
+				self.current_global.used_host_fns[fn_name] = true
 			end
-		elseif self.helper_fns[fn_name] then
+		elseif self.local_fns[fn_name] then
 			if self.current_fn then
 				self.current_fn.needs_clock = true
 			end
@@ -465,12 +487,15 @@ function TypePropagator:fill_statements(statements)
 					are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name)
 				then
 					error(
-						"Can't assign "
-							.. tostring(stmt.expr.result.type_name)
-							.. " to '"
-							.. stmt.name
-							.. "', which has type "
-							.. tostring(stmt.type_name)
+						self:new_error(
+							"Can't assign "
+								.. tostring(stmt.expr.result.type_name)
+								.. " to '"
+								.. stmt.name
+								.. "', which has type "
+								.. tostring(stmt.type_name),
+							stmt.expr_span
+						)
 					)
 				end
 				self:add_local_variable(stmt.name, stmt.type, stmt.type_name)
@@ -490,12 +515,15 @@ function TypePropagator:fill_statements(statements)
 					)
 				then
 					error(
-						"Can't assign "
-							.. tostring(stmt.expr.result.type_name)
-							.. " to '"
-							.. var.name
-							.. "', which has type "
-							.. tostring(var.type_name)
+						self:new_error(
+							"Can't assign "
+								.. tostring(stmt.expr.result.type_name)
+								.. " to '"
+								.. var.name
+								.. "', which has type "
+								.. tostring(var.type_name),
+							stmt.expr_span
+						)
 					)
 				end
 			end
@@ -583,7 +611,7 @@ function TypePropagator:fill_global_variables()
 	for _, stmt in ipairs(self.ast) do
 		if stmt.stmt_type == "VariableStatement" then
 			self.current_global = stmt
-			stmt.used_game_fns = {}
+			stmt.used_host_fns = {}
 			self:check_global_expr(stmt.expr, stmt.name)
 			self:fill_expr(stmt.expr)
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
@@ -591,12 +619,15 @@ function TypePropagator:fill_global_variables()
 			end
 			if are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name) then
 				error(
-					"Can't assign "
-						.. tostring(stmt.expr.result.type_name)
-						.. " to '"
-						.. stmt.name
-						.. "', which has type "
-						.. tostring(stmt.type_name)
+					self:new_error(
+						"Can't assign "
+							.. tostring(stmt.expr.result.type_name)
+							.. " to '"
+							.. stmt.name
+							.. "', which has type "
+							.. tostring(stmt.type_name),
+						stmt.expr_span
+					)
 				)
 			end
 			self:add_global_variable(stmt.name, stmt.type, stmt.type_name)
@@ -614,13 +645,13 @@ local function get_idx(parser_names, name)
 	return -1
 end
 
-function TypePropagator:fill_on_fns()
+function TypePropagator:fill_export_fns()
 	local expected_map = {}
-	for _, fn in ipairs(self.entity_on_functions) do
+	for _, fn in ipairs(self.entity_export_functions) do
 		expected_map[fn.name] = fn
 	end
 
-	for name in pairs(self.on_fns) do
+	for name in pairs(self.export_fns) do
 		if not expected_map[name] then
 			error(
 				"The function '"
@@ -640,9 +671,9 @@ function TypePropagator:fill_on_fns()
 	end
 
 	local last_idx = 0
-	for _, expected_fn in ipairs(self.entity_on_functions) do
+	for _, expected_fn in ipairs(self.entity_export_functions) do
 		local name = expected_fn.name
-		if self.on_fns[name] then
+		if self.export_fns[name] then
 			local curr_idx = get_idx(parser_names, name)
 			if last_idx > curr_idx then
 				error(
@@ -655,11 +686,11 @@ function TypePropagator:fill_on_fns()
 			end
 			last_idx = curr_idx
 
-			local fn = self.on_fns[name]
+			local fn = self.export_fns[name]
 			self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = nil, nil, name
 			self.current_fn = fn
 			fn.needs_clock = false
-			fn.used_game_fns = {}
+			fn.used_host_fns = {}
 			local params = expected_fn.arguments or {}
 
 			if #fn.arguments ~= #params then
@@ -718,12 +749,12 @@ function TypePropagator:fill_on_fns()
 	end
 end
 
-function TypePropagator:fill_helper_fns()
-	for name, fn in pairs(self.helper_fns) do
+function TypePropagator:fill_local_fns()
+	for name, fn in pairs(self.local_fns) do
 		self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = fn.return_type, fn.return_type_name, name
 		self.current_fn = fn
 		fn.needs_clock = false
-		fn.used_game_fns = {}
+		fn.used_host_fns = {}
 		self:add_argument_variables(fn.arguments)
 		self:fill_statements(fn.body_statements)
 
@@ -745,6 +776,6 @@ end
 
 function TypePropagator:fill()
 	self:fill_global_variables()
-	self:fill_on_fns()
-	self:fill_helper_fns()
+	self:fill_export_fns()
+	self:fill_local_fns()
 end

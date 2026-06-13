@@ -260,29 +260,29 @@ function Transpiler:emit_fn(fn_name, fn)
 end
 
 function Transpiler:generate()
-	local used_game_fns = {}
+	local used_host_fns = {}
 	for _, g in ipairs(self.file.global_variables) do
-		for k, _ in pairs(g.used_game_fns or {}) do
-			used_game_fns[k] = true
+		for k, _ in pairs(g.used_host_fns or {}) do
+			used_host_fns[k] = true
 		end
 	end
-	for _, fn in pairs(self.file.on_fns) do
-		for k, _ in pairs(fn.used_game_fns or {}) do
-			used_game_fns[k] = true
+	for _, fn in pairs(self.file.export_fns) do
+		for k, _ in pairs(fn.used_host_fns or {}) do
+			used_host_fns[k] = true
 		end
 	end
-	for _, fn in pairs(self.file.helper_fns) do
-		for k, _ in pairs(fn.used_game_fns or {}) do
-			used_game_fns[k] = true
+	for _, fn in pairs(self.file.local_fns) do
+		for k, _ in pairs(fn.used_host_fns or {}) do
+			used_host_fns[k] = true
 		end
 	end
 
 	-- Sort names for deterministic output.
-	local game_fn_names = {}
-	for name in pairs(used_game_fns) do
-		game_fn_names[#game_fn_names + 1] = name
+	local host_fn_names = {}
+	for name in pairs(used_host_fns) do
+		host_fn_names[#host_fn_names + 1] = name
 	end
-	table.sort(game_fn_names)
+	table.sort(host_fn_names)
 
 	-- 1. In safe mode, emit upvalues used by time-limit checks and on_ entry
 	--    points. _clock is cached to avoid repeated global lookups.
@@ -297,7 +297,7 @@ function Transpiler:generate()
 	-- 2. Upvalue slots for every game function that is actually called.
 	--    (Declaring these as locals before the functions that use them lets
 	--    LuaJIT / Lua 5.1 access them as upvalues rather than globals.)
-	for _, name in ipairs(game_fn_names) do
+	for _, name in ipairs(host_fn_names) do
 		self:w("local " .. name .. "\n")
 	end
 	self:w("\n")
@@ -319,22 +319,22 @@ function Transpiler:generate()
 	-- 5. Helper functions (sorted for determinism; defined before on_ fns so
 	--    on_ fns can call them via the fns table without forward-reference issues).
 	local helper_names = {}
-	for name in pairs(self.file.helper_fns) do
+	for name in pairs(self.file.local_fns) do
 		helper_names[#helper_names + 1] = name
 	end
 	table.sort(helper_names)
 	for _, name in ipairs(helper_names) do
-		self:emit_fn(name, self.file.helper_fns[name])
+		self:emit_fn(name, self.file.local_fns[name])
 	end
 
 	-- 6. On functions (sorted for determinism).
-	local on_fn_names = {}
-	for name in pairs(self.file.on_fns) do
-		on_fn_names[#on_fn_names + 1] = name
+	local export_fn_names = {}
+	for name in pairs(self.file.export_fns) do
+		export_fn_names[#export_fn_names + 1] = name
 	end
-	table.sort(on_fn_names)
-	for _, name in ipairs(on_fn_names) do
-		self:emit_fn(name, self.file.on_fns[name])
+	table.sort(export_fn_names)
+	for _, name in ipairs(export_fn_names) do
+		self:emit_fn(name, self.file.export_fns[name])
 	end
 
 	-- 7. init function: injects game-function upvalues and sets the entity ID.
@@ -346,7 +346,7 @@ function Transpiler:generate()
 	--    In safe mode, deps._time_limit_sec is also read to populate the
 	--    _time_limit_sec upvalue that while-loop time checks use.
 	self:w("function fns.init(deps, state, me_id)\n")
-	for _, name in ipairs(game_fn_names) do
+	for _, name in ipairs(host_fn_names) do
 		self:w("\t" .. name .. " = deps." .. name .. "\n")
 	end
 	if self.safe_mode then
@@ -429,14 +429,14 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 
 	-- Collect the game functions registered with the state.
 	local deps = {}
-	for name, fn in pairs(entity.file.game_fns) do
+	for name, fn in pairs(entity.file.host_fns) do
 		deps[name] = fn
 	end
 
 	-- In safe mode the generated init function reads deps._time_limit_sec to
 	-- populate the _time_limit_sec upvalue used by while-loop time checks.
 	if entity.state.safe_mode then
-		deps._time_limit_sec = entity.state.on_fn_time_limit_ms / 1000
+		deps._time_limit_sec = entity.state.export_fn_time_limit_ms / 1000
 	end
 
 	local old_executed_file = entity.state._executed_file
@@ -477,31 +477,31 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	entity.data = chunk
 end
 
-local unsafe_on_fn_mt = {
+local unsafe_export_fn_mt = {
 	__call = function(t, _self, ...)
 		return t.fn(...)
 	end,
 }
 
-local safe_on_fn_mt = {
+local safe_export_fn_mt = {
 	__call = function(t, self, ...)
 		return self.state.backend:call_on_function(self, t.key, ...)
 	end,
 }
 
-function TranspilerBackend:get_on_fn(entity, key) -- luacheck: ignore
+function TranspilerBackend:get_export_fn(entity, key) -- luacheck: ignore
 	if not entity.state.safe_mode then
-		return setmetatable({ fn = entity.data[key] }, unsafe_on_fn_mt)
+		return setmetatable({ fn = entity.data[key] }, unsafe_export_fn_mt)
 	else
-		return setmetatable({ key = key }, safe_on_fn_mt)
+		return setmetatable({ key = key }, safe_export_fn_mt)
 	end
 end
 
 -- Execute the named on_ function on the entity.
-function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck: ignore
-	local fn = entity.data[on_fn_name]
+function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luacheck: ignore
+	local fn = entity.data[export_fn_name]
 	if not fn then
-		error("The function '" .. on_fn_name .. "' is not defined by the file " .. entity.file.relative_path, 0)
+		error("The function '" .. export_fn_name .. "' is not defined by the file " .. entity.file.relative_path, 0)
 	end
 
 	-- When safe_mode is false the caller guarantees no bugs exist in any mod,
@@ -513,7 +513,7 @@ function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck
 	end
 
 	local old_fn_name = entity.fn_name
-	entity.fn_name = on_fn_name
+	entity.fn_name = export_fn_name
 	local old_executed_file = entity.state._executed_file
 	entity.state._executed_file = entity.file
 	local old_executed_entity = entity.state._executed_entity
@@ -529,12 +529,17 @@ function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck
 
 	if not ok then
 		if type(err) == "table" and err.type == "GAME_FN_ERROR" then
-			entity.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", on_fn_name, entity.file.relative_path)
+			entity.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", export_fn_name, entity.file.relative_path)
 			return
 		end
 		-- Time-limit exceeded: generated while loops throw this table.
 		if type(err) == "table" and err.type == "TIME_LIMIT_EXCEEDED" then
-			entity.state.runtime_error_handler(err.reason, "TIME_LIMIT_EXCEEDED", on_fn_name, entity.file.relative_path)
+			entity.state.runtime_error_handler(
+				err.reason,
+				"TIME_LIMIT_EXCEEDED",
+				export_fn_name,
+				entity.file.relative_path
+			)
 			return
 		end
 		-- Stack overflow: Lua itself throws a string containing "stack overflow".
@@ -544,7 +549,7 @@ function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck
 			entity.state.runtime_error_handler(
 				"Stack overflow, so check for accidental infinite recursion",
 				"STACK_OVERFLOW",
-				on_fn_name,
+				export_fn_name,
 				entity.file.relative_path
 			)
 			return

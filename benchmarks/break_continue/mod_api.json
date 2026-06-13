@@ -2,7 +2,7 @@
     "entities": {
         "Benchmark": {
             "description": "Break/continue benchmark.",
-            "on_functions": [
+            "export_functions": [
                 {
                     "name": "on_run",
                     "description": "Sums the first 100 even numbers using break and continue."
@@ -10,7 +10,7 @@
             ]
         }
     },
-    "game_functions": {
+    "host_functions": {
         "is_odd": {
             "description": "Returns true if the number is odd.",
             "arguments": [

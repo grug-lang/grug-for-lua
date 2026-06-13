@@ -311,41 +311,41 @@ function grug:_compile_grug_file(grug_file_relative_path)
 
 	local tokens = tokenize(text)
 
-	local ast = Parser.new(tokens):parse()
+	local ast = Parser.new(tokens, text, grug_file_relative_path):parse()
 
 	local mod = grug_file_relative_path:match("([^/]+)")
 
 	local filename = grug_file_relative_path:match("([^/]+)$")
 	local entity_type = get_file_entity_type(filename)
 
-	TypePropagator.new(ast, mod, entity_type, self.mod_api):fill()
+	TypePropagator.new(ast, mod, entity_type, self.mod_api, text, grug_file_relative_path):fill()
 
-	local global_variables, on_fns, helper_fns = {}, {}, {}
+	local global_variables, export_fns, local_fns = {}, {}, {}
 	for _, stmt in ipairs(ast) do
 		if stmt.stmt_type == "VariableStatement" then
 			push(global_variables, stmt)
 		elseif stmt.stmt_type == "OnFn" then
-			on_fns[stmt.fn_name] = stmt
+			export_fns[stmt.fn_name] = stmt
 			stmt.fn_name = nil
 		elseif stmt.stmt_type == "HelperFn" then
-			helper_fns[stmt.fn_name] = stmt
+			local_fns[stmt.fn_name] = stmt
 			stmt.fn_name = nil
 		end
 	end
 
-	local game_fn_return_types = {}
-	for name, decl in pairs(self.mod_api.game_functions) do
-		game_fn_return_types[name] = decl.return_type
+	local host_fn_return_types = {}
+	for name, decl in pairs(self.mod_api.host_functions) do
+		host_fn_return_types[name] = decl.return_type
 	end
 
 	return GrugFile.new(
 		grug_file_relative_path,
 		mod,
 		global_variables,
-		on_fns,
-		helper_fns,
-		self.game_fns,
-		game_fn_return_types,
+		export_fns,
+		local_fns,
+		self.host_fns,
+		host_fn_return_types,
 		self,
 		version
 	)
@@ -353,7 +353,7 @@ end
 
 function grug:grug_to_json(input_grug_text) -- luacheck: ignore
 	local tokens = tokenize(input_grug_text)
-	local ast = Parser.new(tokens):parse()
+	local ast = Parser.new(tokens, input_grug_text):parse()
 	return ast_to_json_text(ast)
 end
 
@@ -363,7 +363,7 @@ function grug:json_to_grug(input_json_text) -- luacheck: ignore
 end
 
 function grug:register(name, fn)
-	self.game_fns[name] = fn
+	self.host_fns[name] = fn
 end
 
 local function assert_mod_api(mod_api)
@@ -386,26 +386,26 @@ local function assert_mod_api(mod_api)
 			)
 		end
 
-		local on_functions = entity.on_functions
-		if on_functions ~= nil and type(on_functions) ~= "table" then
+		local export_functions = entity.export_functions
+		if export_functions ~= nil and type(export_functions) ~= "table" then
 			error(
 				string.format(
-					"Error: 'on_functions' for entity '%s' must be a JSON array, but got %s: %s",
+					"Error: 'export_functions' for entity '%s' must be a JSON array, but got %s: %s",
 					entity_name,
-					type(on_functions),
-					tostring(on_functions)
+					type(export_functions),
+					tostring(export_functions)
 				)
 			)
 		end
 	end
 
-	local game_functions = mod_api.game_functions
-	if type(game_functions) ~= "table" then
+	local host_functions = mod_api.host_functions
+	if type(host_functions) ~= "table" then
 		error(
 			string.format(
-				"Error: 'game_functions' must be a JSON object, but got %s: %s",
-				type(game_functions),
-				tostring(game_functions)
+				"Error: 'host_functions' must be a JSON object, but got %s: %s",
+				type(host_functions),
+				tostring(host_functions)
 			)
 		)
 	end
@@ -418,8 +418,8 @@ function grug:get_transpiled_code()
 	return self._latest_transpiled_code
 end
 
-local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path) -- luacheck: ignore
-	print("grug runtime error in " .. on_fn_name .. "(): " .. reason .. ", in " .. on_fn_path)
+local function default_runtime_error_handler(reason, grug_runtime_error_type, export_fn_name, export_fn_path) -- luacheck: ignore
+	print("grug runtime error in " .. export_fn_name .. "(): " .. reason .. ", in " .. export_fn_path)
 end
 
 local bxor
@@ -471,7 +471,7 @@ function grug.init(settings)
 	local runtime_error_handler = settings.runtime_error_handler or default_runtime_error_handler
 	local mod_api_path = settings.mod_api_path or "mod_api.json"
 	local mods_dir_path = settings.mods_dir_path or "mods"
-	local on_fn_time_limit_ms = settings.on_fn_time_limit_ms or 100
+	local export_fn_time_limit_ms = settings.export_fn_time_limit_ms or 100
 	local packages = settings.packages or {}
 
 	-- safe_mode=true (the default) means backends must intercept all runtime
@@ -511,11 +511,11 @@ function grug.init(settings)
 	return setmetatable({
 		runtime_error_handler = runtime_error_handler,
 		mods_dir_path = mods_dir_path,
-		on_fn_time_limit_ms = on_fn_time_limit_ms,
+		export_fn_time_limit_ms = export_fn_time_limit_ms,
 		packages = packages,
 		fs = fs,
 		mod_api = mod_api,
-		game_fns = {},
+		host_fns = {},
 		next_id = 0,
 		fn_depth = 0,
 		safe_mode = safe_mode,

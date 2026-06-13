@@ -405,6 +405,8 @@ local KEYWORDS = {
 	["break"] = "BREAK_TOKEN",
 	["return"] = "RETURN_TOKEN",
 	["continue"] = "CONTINUE_TOKEN",
+	["export"] = "EXPORT_TOKEN",
+	["local"] = "LOCAL_TOKEN",
 }
 
 local SYMBOLS = {
@@ -433,6 +435,80 @@ local DOUBLE_SYMBOLS = {
 
 local function error_at(msg, line_number)
 	error(msg .. " on line " .. line_number)
+end
+
+-- Returns the 1-based column of the character at `pos` (1-based index into `src`).
+local function get_column(src, pos)
+	local last_newline = 0
+	for j = pos - 1, 1, -1 do
+		if src:sub(j, j) == "\n" then
+			last_newline = j
+			break
+		end
+	end
+	return pos - last_newline
+end
+
+-- Returns the (whitespace-trimmed) source line that contains `pos` (1-based index into `src`).
+local function get_source_line(src, pos)
+	local line_start = pos
+	while line_start > 1 and src:sub(line_start - 1, line_start - 1) ~= "\n" do
+		line_start = line_start - 1
+	end
+
+	local line_end = pos
+	while line_end <= #src and src:sub(line_end, line_end) ~= "\n" do
+		line_end = line_end + 1
+	end
+
+	return (src:sub(line_start, line_end - 1):gsub("^%s+", ""))
+end
+
+-- Human-readable representation of each token type, used in "Expected X but got Y" errors.
+local TOKEN_TYPE_STR = {
+	OPEN_PARENTHESIS_TOKEN = "'('",
+	CLOSE_PARENTHESIS_TOKEN = "')'",
+	OPEN_BRACE_TOKEN = "'{'",
+	CLOSE_BRACE_TOKEN = "'}'",
+	PLUS_TOKEN = "'+'",
+	MINUS_TOKEN = "'-'",
+	MULTIPLICATION_TOKEN = "'*'",
+	DIVISION_TOKEN = "'/'",
+	COMMA_TOKEN = "','",
+	COLON_TOKEN = "':'",
+	NEWLINE_TOKEN = "line break ('\\n')",
+	EQUALS_TOKEN = "'=='",
+	NOT_EQUALS_TOKEN = "'!='",
+	ASSIGNMENT_TOKEN = "'='",
+	GREATER_OR_EQUAL_TOKEN = "'>='",
+	GREATER_TOKEN = "'>'",
+	LESS_OR_EQUAL_TOKEN = "'<='",
+	LESS_TOKEN = "'<'",
+	AND_TOKEN = "'and'",
+	OR_TOKEN = "'or'",
+	NOT_TOKEN = "'not'",
+	TRUE_TOKEN = "'true'",
+	FALSE_TOKEN = "'false'",
+	IF_TOKEN = "'if'",
+	ELSE_TOKEN = "'else'",
+	WHILE_TOKEN = "'while'",
+	BREAK_TOKEN = "'break'",
+	RETURN_TOKEN = "'return'",
+	CONTINUE_TOKEN = "'continue'",
+	EXPORT_TOKEN = "'export'",
+	LOCAL_TOKEN = "'local'",
+	SPACE_TOKEN = "space (' ')",
+	INDENTATION_TOKEN = "indentation",
+	STRING_TOKEN = "string",
+	ENTITY_TOKEN = "entity string",
+	RESOURCE_TOKEN = "resource string",
+	WORD_TOKEN = "word",
+	NUMBER_TOKEN = "number",
+	COMMENT_TOKEN = "comment",
+}
+
+local function token_type_str(token_type)
+	return TOKEN_TYPE_STR[token_type] or token_type
 end
 
 local function tokenize_string(src, line_number, start_idx)
@@ -464,6 +540,9 @@ local function tokenize(src)
 	local line_number = 1
 
 	while i <= #src do
+		local start_i = i
+		local start_line = line_number
+
 		local c = src:sub(i, i)
 		local double_c = src:sub(i, i + 1)
 
@@ -606,6 +685,9 @@ local function tokenize(src)
 		else
 			error_at("Unrecognized character '" .. c .. "'", line_number)
 		end
+
+		tokens[#tokens].pos = start_i
+		tokens[#tokens].line = start_line
 	end
 
 	return tokens
@@ -654,8 +736,15 @@ local Nodes = {
 	Parenthesized = function(expr)
 		return { expr = expr }
 	end,
-	Variable = function(name, t, tname, expr)
-		return { stmt_type = "VariableStatement", name = name, type = t, type_name = tname, expr = expr }
+	Variable = function(name, t, tname, expr, expr_span)
+		return {
+			stmt_type = "VariableStatement",
+			name = name,
+			type = t,
+			type_name = tname,
+			expr = expr,
+			expr_span = expr_span,
+		}
 	end,
 	CallStmt = function(expr)
 		return { stmt_type = "CallStatement", expr = expr }
@@ -703,17 +792,20 @@ local TYPE_MAP = {
 local Parser = {}
 Parser.__index = Parser
 
-function Parser.new(tokens)
+function Parser.new(tokens, src, file_path)
 	return setmetatable({
 		tokens = tokens,
+		src = src or "",
+		file_path = file_path or "",
+		current_function = nil,
 		idx = 1,
 		ast = {},
-		helper_fns = {},
-		on_fns = {},
+		local_fns = {},
+		export_fns = {},
 		parsing_depth = 0,
 		loop_depth = 0,
 		indentation = 0,
-		called_helper_fn_names = {},
+		called_local_fn_names = {},
 	}, Parser)
 end
 
@@ -727,6 +819,28 @@ function Parser:get_token_line_number(idx)
 		end
 	end
 	return line
+end
+
+-- Builds an error message pointing at `token` (defaults to the current token).
+function Parser:new_error(msg, token)
+	token = token or self:peek()
+
+	local line = token.line or self:get_token_line_number(self.idx)
+	local column = token.pos and get_column(self.src, token.pos) or 1
+	local source_line = token.pos and get_source_line(self.src, token.pos) or ""
+
+	local current_function = self.current_function or "member scope"
+
+	return string.format(
+		"  in %s (%s:%d:%d)\nError: %s\n%d $ %s",
+		current_function,
+		self.file_path,
+		line,
+		column,
+		msg,
+		line,
+		source_line
+	)
 end
 
 function Parser:peek(offset)
@@ -746,14 +860,7 @@ end
 function Parser:assert_type(expected)
 	local t = self:peek()
 	if t.type ~= expected then
-		error(
-			"Expected token type "
-				.. expected
-				.. ", but got "
-				.. t.type
-				.. " on line "
-				.. self:get_token_line_number(self.idx)
-		)
+		error(self:new_error("Expected " .. token_type_str(expected) .. " but got " .. token_type_str(t.type), t))
 	end
 end
 
@@ -766,10 +873,7 @@ function Parser:consume_space()
 	local tok = self:peek()
 	if tok.type ~= "SPACE_TOKEN" then
 		error(
-			"Expected token type SPACE_TOKEN, but got "
-				.. tok.type
-				.. " on line "
-				.. self:get_token_line_number(self.idx)
+			self:new_error("Expected " .. token_type_str("SPACE_TOKEN") .. " but got " .. token_type_str(tok.type), tok)
 		)
 	end
 	self.idx = self.idx + 1
@@ -842,54 +946,53 @@ end
 --- Parsing Methods ---
 
 function Parser:parse()
-	local seen_on_fn, newline_allowed, newline_required = false, false, false
+	local seen_export_fn, newline_allowed, newline_required = false, false, false
 
 	while self.idx <= #self.tokens do
 		local token = self:peek()
-		local next_token = self.idx < #self.tokens and self:peek(1) or nil
 
-		if token.type == "WORD_TOKEN" and next_token and next_token.type == "COLON_TOKEN" then
-			if seen_on_fn then
-				error("Move the global variable '" .. token.value .. "' so it is above the on_ functions")
+		if token.type == "WORD_TOKEN" then
+			self:consume_type("WORD_TOKEN")
+			self:consume_type("COLON_TOKEN")
+
+			if seen_export_fn then
+				error("Move the global variable '" .. token.value .. "' so it is above the export functions")
 			end
+
 			push(self.ast, self:parse_global_variable())
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed, newline_required = true, true
-		elseif
-			token.type == "WORD_TOKEN"
-			and token.value:sub(1, 3) == "on_"
-			and next_token
-			and next_token.type == "OPEN_PARENTHESIS_TOKEN"
-		then
-			if next(self.helper_fns) then
+		elseif token.type == "EXPORT_TOKEN" then
+			self:consume_type("EXPORT_TOKEN")
+			self:consume_space()
+
+			if next(self.local_fns) then
 				error(token.value .. "() must be defined before all helper_ functions")
 			end
 			if newline_required then
 				error("Expected an empty line, on line " .. self:get_token_line_number(self.idx))
 			end
 
-			local fn = self:parse_on_fn()
-			if self.on_fns[fn.fn_name] then
+			local fn = self:parse_export_fn()
+			if self.export_fns[fn.fn_name] then
 				error("The function '" .. fn.fn_name .. "' was defined several times in the same file")
 			end
-			self.on_fns[fn.fn_name] = fn
+			self.export_fns[fn.fn_name] = fn
 			self:consume_type("NEWLINE_TOKEN")
-			seen_on_fn, newline_allowed, newline_required = true, true, true
-		elseif
-			token.type == "WORD_TOKEN"
-			and token.value:sub(1, 7) == "helper_"
-			and next_token
-			and next_token.type == "OPEN_PARENTHESIS_TOKEN"
-		then
+			seen_export_fn, newline_allowed, newline_required = true, true, true
+		elseif token.type == "LOCAL_TOKEN" then
+			self:consume_type("LOCAL_TOKEN")
+			self:consume_space()
+
 			if newline_required then
 				error("Expected an empty line, on line " .. self:get_token_line_number(self.idx))
 			end
 
-			local fn = self:parse_helper_fn()
-			if self.helper_fns[fn.fn_name] then
+			local fn = self:parse_local_fn()
+			if self.local_fns[fn.fn_name] then
 				error("The function '" .. fn.fn_name .. "' was defined several times in the same file")
 			end
-			self.helper_fns[fn.fn_name] = fn
+			self.local_fns[fn.fn_name] = fn
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed, newline_required = true, true
 		elseif token.type == "NEWLINE_TOKEN" then
@@ -946,11 +1049,13 @@ function Parser:parse_arguments()
 	return args
 end
 
-function Parser:parse_helper_fn()
+function Parser:parse_local_fn()
 	local name = self:consume().value
-	if not self.called_helper_fn_names[name] then
+	if not self.called_local_fn_names[name] then
 		error(name .. "() is defined before the first time it gets called")
 	end
+
+	self.current_function = name
 
 	local fn = Nodes.HelperFn(name)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
@@ -975,11 +1080,14 @@ function Parser:parse_helper_fn()
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
 	push(self.ast, fn)
+	self.current_function = nil
 	return fn
 end
 
-function Parser:parse_on_fn()
+function Parser:parse_export_fn()
 	local name = self:consume().value
+	self.current_function = name
+
 	local fn = Nodes.OnFn(name)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
@@ -989,6 +1097,7 @@ function Parser:parse_on_fn()
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
 	push(self.ast, fn)
+	self.current_function = nil
 	return fn
 end
 
@@ -1124,7 +1233,14 @@ function Parser:parse_local_variable()
 		error("Assigning a new value to the entity's 'me' variable is not allowed")
 	end
 	self:consume_space()
-	return Nodes.Variable(name, v_type, v_tname, self:parse_expression())
+	local expr_token = self:peek()
+	return Nodes.Variable(
+		name,
+		v_type,
+		v_tname,
+		self:parse_expression(),
+		{ line = expr_token.line, pos = expr_token.pos }
+	)
 end
 
 function Parser:parse_global_variable()
@@ -1158,7 +1274,14 @@ function Parser:parse_global_variable()
 	self:consume_space()
 	self:consume_type("ASSIGNMENT_TOKEN")
 	self:consume_space()
-	return Nodes.Variable(name, g_type, t_name, self:parse_expression())
+	local expr_token = self:peek()
+	return Nodes.Variable(
+		name,
+		g_type,
+		t_name,
+		self:parse_expression(),
+		{ line = expr_token.line, pos = expr_token.pos }
+	)
 end
 
 function Parser:parse_if_statement()
@@ -1262,7 +1385,7 @@ function Parser:parse_call()
 	else
 		local fn_name = expr.name
 		if fn_name:sub(1, 7) == "helper_" then
-			self.called_helper_fn_names[fn_name] = true
+			self.called_local_fn_names[fn_name] = true
 		end
 
 		local call = Nodes.Call(fn_name)
@@ -1391,7 +1514,7 @@ local function parse_args(lst)
 	return args
 end
 
-local function parse_game_fn(fn_name, fn)
+local function parse_host_fn(fn_name, fn)
 	return GameFn(fn_name, parse_args(fn.arguments), fn.return_type and get_type(fn.return_type) or nil, fn.return_type)
 end
 
@@ -1402,43 +1525,65 @@ end
 local TypePropagator = {}
 TypePropagator.__index = TypePropagator
 
-function TypePropagator.new(ast, mod, entity_type, mod_api)
+function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path)
 	local self = setmetatable({
 		ast = ast,
 		mod = mod,
 		file_entity_type = entity_type,
 		mod_api = mod_api,
-		on_fns = {},
-		helper_fns = {},
+		src = src or "",
+		file_path = file_path or "",
+		export_fns = {},
+		local_fns = {},
 		fn_return_type = nil,
 		fn_return_type_name = nil,
 		filled_fn_name = nil,
 		local_variables = {},
 		global_variables = {},
-		game_functions = {},
-		entity_on_functions = {},
+		host_functions = {},
+		entity_export_functions = {},
 	}, TypePropagator)
 
 	for _, s in ipairs(ast) do
 		if s.stmt_type == "OnFn" then
-			self.on_fns[s.fn_name] = s
+			self.export_fns[s.fn_name] = s
 		elseif s.stmt_type == "HelperFn" then
-			self.helper_fns[s.fn_name] = s
+			self.local_fns[s.fn_name] = s
 		end
 	end
 
-	if mod_api.game_functions then
-		for fn_name, fn in pairs(mod_api.game_functions) do
-			self.game_functions[fn_name] = parse_game_fn(fn_name, fn)
+	if mod_api.host_functions then
+		for fn_name, fn in pairs(mod_api.host_functions) do
+			self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
 		end
 	end
 
 	local entity_cfg = mod_api.entities and mod_api.entities[entity_type]
-	if entity_cfg and entity_cfg.on_functions then
-		self.entity_on_functions = entity_cfg.on_functions
+	if entity_cfg and entity_cfg.export_functions then
+		self.entity_export_functions = entity_cfg.export_functions
 	end
 
 	return self
+end
+
+-- Builds an error message pointing at `span` (a table with `line` and `pos` fields).
+function TypePropagator:new_error(msg, span)
+	local current_function = self.filled_fn_name or "member scope"
+
+	local line = span and span.line or 1
+	local column = span and span.pos and get_column(self.src, span.pos) or 1
+	local source_line = span and span.pos and get_source_line(self.src, span.pos) or ""
+
+	return string.format(
+		"  in %s (%s:%d:%d)\nError: %s\n%d $ %s",
+		current_function,
+		self.file_path,
+		line,
+		column,
+		msg,
+		line,
+		source_line
+	)
 end
 
 -- --------------------------------------------------------------------------
@@ -1685,19 +1830,19 @@ function TypePropagator:fill_call_expr(expr)
 	end
 
 	local fn_name = expr.fn_name
-	local target_fn = self.helper_fns[fn_name] or self.game_functions[fn_name]
+	local target_fn = self.local_fns[fn_name] or self.host_functions[fn_name]
 
 	if target_fn then
 		expr.result = { type = target_fn.return_type, type_name = target_fn.return_type_name }
 		self:check_arguments(target_fn.arguments, expr)
 
-		if self.game_functions[fn_name] then
+		if self.host_functions[fn_name] then
 			if self.current_fn then
-				self.current_fn.used_game_fns[fn_name] = true
+				self.current_fn.used_host_fns[fn_name] = true
 			elseif self.current_global then
-				self.current_global.used_game_fns[fn_name] = true
+				self.current_global.used_host_fns[fn_name] = true
 			end
-		elseif self.helper_fns[fn_name] then
+		elseif self.local_fns[fn_name] then
 			if self.current_fn then
 				self.current_fn.needs_clock = true
 			end
@@ -1819,12 +1964,15 @@ function TypePropagator:fill_statements(statements)
 					are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name)
 				then
 					error(
-						"Can't assign "
-							.. tostring(stmt.expr.result.type_name)
-							.. " to '"
-							.. stmt.name
-							.. "', which has type "
-							.. tostring(stmt.type_name)
+						self:new_error(
+							"Can't assign "
+								.. tostring(stmt.expr.result.type_name)
+								.. " to '"
+								.. stmt.name
+								.. "', which has type "
+								.. tostring(stmt.type_name),
+							stmt.expr_span
+						)
 					)
 				end
 				self:add_local_variable(stmt.name, stmt.type, stmt.type_name)
@@ -1844,12 +1992,15 @@ function TypePropagator:fill_statements(statements)
 					)
 				then
 					error(
-						"Can't assign "
-							.. tostring(stmt.expr.result.type_name)
-							.. " to '"
-							.. var.name
-							.. "', which has type "
-							.. tostring(var.type_name)
+						self:new_error(
+							"Can't assign "
+								.. tostring(stmt.expr.result.type_name)
+								.. " to '"
+								.. var.name
+								.. "', which has type "
+								.. tostring(var.type_name),
+							stmt.expr_span
+						)
 					)
 				end
 			end
@@ -1937,7 +2088,7 @@ function TypePropagator:fill_global_variables()
 	for _, stmt in ipairs(self.ast) do
 		if stmt.stmt_type == "VariableStatement" then
 			self.current_global = stmt
-			stmt.used_game_fns = {}
+			stmt.used_host_fns = {}
 			self:check_global_expr(stmt.expr, stmt.name)
 			self:fill_expr(stmt.expr)
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
@@ -1945,12 +2096,15 @@ function TypePropagator:fill_global_variables()
 			end
 			if are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name) then
 				error(
-					"Can't assign "
-						.. tostring(stmt.expr.result.type_name)
-						.. " to '"
-						.. stmt.name
-						.. "', which has type "
-						.. tostring(stmt.type_name)
+					self:new_error(
+						"Can't assign "
+							.. tostring(stmt.expr.result.type_name)
+							.. " to '"
+							.. stmt.name
+							.. "', which has type "
+							.. tostring(stmt.type_name),
+						stmt.expr_span
+					)
 				)
 			end
 			self:add_global_variable(stmt.name, stmt.type, stmt.type_name)
@@ -1968,13 +2122,13 @@ local function get_idx(parser_names, name)
 	return -1
 end
 
-function TypePropagator:fill_on_fns()
+function TypePropagator:fill_export_fns()
 	local expected_map = {}
-	for _, fn in ipairs(self.entity_on_functions) do
+	for _, fn in ipairs(self.entity_export_functions) do
 		expected_map[fn.name] = fn
 	end
 
-	for name in pairs(self.on_fns) do
+	for name in pairs(self.export_fns) do
 		if not expected_map[name] then
 			error(
 				"The function '"
@@ -1994,9 +2148,9 @@ function TypePropagator:fill_on_fns()
 	end
 
 	local last_idx = 0
-	for _, expected_fn in ipairs(self.entity_on_functions) do
+	for _, expected_fn in ipairs(self.entity_export_functions) do
 		local name = expected_fn.name
-		if self.on_fns[name] then
+		if self.export_fns[name] then
 			local curr_idx = get_idx(parser_names, name)
 			if last_idx > curr_idx then
 				error(
@@ -2009,11 +2163,11 @@ function TypePropagator:fill_on_fns()
 			end
 			last_idx = curr_idx
 
-			local fn = self.on_fns[name]
+			local fn = self.export_fns[name]
 			self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = nil, nil, name
 			self.current_fn = fn
 			fn.needs_clock = false
-			fn.used_game_fns = {}
+			fn.used_host_fns = {}
 			local params = expected_fn.arguments or {}
 
 			if #fn.arguments ~= #params then
@@ -2072,12 +2226,12 @@ function TypePropagator:fill_on_fns()
 	end
 end
 
-function TypePropagator:fill_helper_fns()
-	for name, fn in pairs(self.helper_fns) do
+function TypePropagator:fill_local_fns()
+	for name, fn in pairs(self.local_fns) do
 		self.fn_return_type, self.fn_return_type_name, self.filled_fn_name = fn.return_type, fn.return_type_name, name
 		self.current_fn = fn
 		fn.needs_clock = false
-		fn.used_game_fns = {}
+		fn.used_host_fns = {}
 		self:add_argument_variables(fn.arguments)
 		self:fill_statements(fn.body_statements)
 
@@ -2099,8 +2253,8 @@ end
 
 function TypePropagator:fill()
 	self:fill_global_variables()
-	self:fill_on_fns()
-	self:fill_helper_fns()
+	self:fill_export_fns()
+	self:fill_local_fns()
 end
 
 -- BEGIN 05_serializer.lua
@@ -2222,7 +2376,7 @@ local function serialize_global_statement(stmt)
 	local t = stmt.stmt_type
 
 	if t == "OnFn" or t == "HelperFn" then
-		result.type = (t == "OnFn") and "GLOBAL_ON_FN" or "GLOBAL_HELPER_FN"
+		result.type = (t == "OnFn") and "EXPORT_FN" or "LOCAL_FN"
 		result.name = stmt.fn_name
 		result.arguments = serialize_arguments(stmt.arguments)
 
@@ -2424,12 +2578,12 @@ local function ast_to_grug(ast)
 			write(stmt.name .. ": " .. stmt.variable_type .. " = ", output)
 			apply_expr(stmt.assignment, output)
 			write("\n", output)
-		elseif t == "GLOBAL_ON_FN" or t == "GLOBAL_HELPER_FN" then
+		elseif t == "EXPORT_FN" or t == "LOCAL_FN" then
 			write(stmt.name .. "(", output)
 			apply_args(stmt.arguments, output)
 			write(")", output)
 
-			if t == "GLOBAL_HELPER_FN" and stmt.return_type then
+			if t == "LOCAL_FN" and stmt.return_type then
 				write(" " .. stmt.return_type, output)
 			end
 
@@ -2461,7 +2615,7 @@ function GrugEntity:__index(key) -- luacheck: ignore
 	end
 
 	if type(key) == "string" and string.sub(key, 1, 3) == "on_" then
-		local fn = self.state.backend:get_on_fn(self, key)
+		local fn = self.state.backend:get_export_fn(self, key)
 		rawset(self, key, fn) -- cache: future accesses hit the table directly, no __index
 		return fn
 	end
@@ -2753,29 +2907,29 @@ function Transpiler:emit_fn(fn_name, fn)
 end
 
 function Transpiler:generate()
-	local used_game_fns = {}
+	local used_host_fns = {}
 	for _, g in ipairs(self.file.global_variables) do
-		for k, _ in pairs(g.used_game_fns or {}) do
-			used_game_fns[k] = true
+		for k, _ in pairs(g.used_host_fns or {}) do
+			used_host_fns[k] = true
 		end
 	end
-	for _, fn in pairs(self.file.on_fns) do
-		for k, _ in pairs(fn.used_game_fns or {}) do
-			used_game_fns[k] = true
+	for _, fn in pairs(self.file.export_fns) do
+		for k, _ in pairs(fn.used_host_fns or {}) do
+			used_host_fns[k] = true
 		end
 	end
-	for _, fn in pairs(self.file.helper_fns) do
-		for k, _ in pairs(fn.used_game_fns or {}) do
-			used_game_fns[k] = true
+	for _, fn in pairs(self.file.local_fns) do
+		for k, _ in pairs(fn.used_host_fns or {}) do
+			used_host_fns[k] = true
 		end
 	end
 
 	-- Sort names for deterministic output.
-	local game_fn_names = {}
-	for name in pairs(used_game_fns) do
-		game_fn_names[#game_fn_names + 1] = name
+	local host_fn_names = {}
+	for name in pairs(used_host_fns) do
+		host_fn_names[#host_fn_names + 1] = name
 	end
-	table.sort(game_fn_names)
+	table.sort(host_fn_names)
 
 	-- 1. In safe mode, emit upvalues used by time-limit checks and on_ entry
 	--    points. _clock is cached to avoid repeated global lookups.
@@ -2790,7 +2944,7 @@ function Transpiler:generate()
 	-- 2. Upvalue slots for every game function that is actually called.
 	--    (Declaring these as locals before the functions that use them lets
 	--    LuaJIT / Lua 5.1 access them as upvalues rather than globals.)
-	for _, name in ipairs(game_fn_names) do
+	for _, name in ipairs(host_fn_names) do
 		self:w("local " .. name .. "\n")
 	end
 	self:w("\n")
@@ -2812,22 +2966,22 @@ function Transpiler:generate()
 	-- 5. Helper functions (sorted for determinism; defined before on_ fns so
 	--    on_ fns can call them via the fns table without forward-reference issues).
 	local helper_names = {}
-	for name in pairs(self.file.helper_fns) do
+	for name in pairs(self.file.local_fns) do
 		helper_names[#helper_names + 1] = name
 	end
 	table.sort(helper_names)
 	for _, name in ipairs(helper_names) do
-		self:emit_fn(name, self.file.helper_fns[name])
+		self:emit_fn(name, self.file.local_fns[name])
 	end
 
 	-- 6. On functions (sorted for determinism).
-	local on_fn_names = {}
-	for name in pairs(self.file.on_fns) do
-		on_fn_names[#on_fn_names + 1] = name
+	local export_fn_names = {}
+	for name in pairs(self.file.export_fns) do
+		export_fn_names[#export_fn_names + 1] = name
 	end
-	table.sort(on_fn_names)
-	for _, name in ipairs(on_fn_names) do
-		self:emit_fn(name, self.file.on_fns[name])
+	table.sort(export_fn_names)
+	for _, name in ipairs(export_fn_names) do
+		self:emit_fn(name, self.file.export_fns[name])
 	end
 
 	-- 7. init function: injects game-function upvalues and sets the entity ID.
@@ -2839,7 +2993,7 @@ function Transpiler:generate()
 	--    In safe mode, deps._time_limit_sec is also read to populate the
 	--    _time_limit_sec upvalue that while-loop time checks use.
 	self:w("function fns.init(deps, state, me_id)\n")
-	for _, name in ipairs(game_fn_names) do
+	for _, name in ipairs(host_fn_names) do
 		self:w("\t" .. name .. " = deps." .. name .. "\n")
 	end
 	if self.safe_mode then
@@ -2922,14 +3076,14 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 
 	-- Collect the game functions registered with the state.
 	local deps = {}
-	for name, fn in pairs(entity.file.game_fns) do
+	for name, fn in pairs(entity.file.host_fns) do
 		deps[name] = fn
 	end
 
 	-- In safe mode the generated init function reads deps._time_limit_sec to
 	-- populate the _time_limit_sec upvalue used by while-loop time checks.
 	if entity.state.safe_mode then
-		deps._time_limit_sec = entity.state.on_fn_time_limit_ms / 1000
+		deps._time_limit_sec = entity.state.export_fn_time_limit_ms / 1000
 	end
 
 	local old_executed_file = entity.state._executed_file
@@ -2970,31 +3124,31 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	entity.data = chunk
 end
 
-local unsafe_on_fn_mt = {
+local unsafe_export_fn_mt = {
 	__call = function(t, _self, ...)
 		return t.fn(...)
 	end,
 }
 
-local safe_on_fn_mt = {
+local safe_export_fn_mt = {
 	__call = function(t, self, ...)
 		return self.state.backend:call_on_function(self, t.key, ...)
 	end,
 }
 
-function TranspilerBackend:get_on_fn(entity, key) -- luacheck: ignore
+function TranspilerBackend:get_export_fn(entity, key) -- luacheck: ignore
 	if not entity.state.safe_mode then
-		return setmetatable({ fn = entity.data[key] }, unsafe_on_fn_mt)
+		return setmetatable({ fn = entity.data[key] }, unsafe_export_fn_mt)
 	else
-		return setmetatable({ key = key }, safe_on_fn_mt)
+		return setmetatable({ key = key }, safe_export_fn_mt)
 	end
 end
 
 -- Execute the named on_ function on the entity.
-function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck: ignore
-	local fn = entity.data[on_fn_name]
+function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luacheck: ignore
+	local fn = entity.data[export_fn_name]
 	if not fn then
-		error("The function '" .. on_fn_name .. "' is not defined by the file " .. entity.file.relative_path, 0)
+		error("The function '" .. export_fn_name .. "' is not defined by the file " .. entity.file.relative_path, 0)
 	end
 
 	-- When safe_mode is false the caller guarantees no bugs exist in any mod,
@@ -3006,7 +3160,7 @@ function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck
 	end
 
 	local old_fn_name = entity.fn_name
-	entity.fn_name = on_fn_name
+	entity.fn_name = export_fn_name
 	local old_executed_file = entity.state._executed_file
 	entity.state._executed_file = entity.file
 	local old_executed_entity = entity.state._executed_entity
@@ -3022,12 +3176,17 @@ function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck
 
 	if not ok then
 		if type(err) == "table" and err.type == "GAME_FN_ERROR" then
-			entity.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", on_fn_name, entity.file.relative_path)
+			entity.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", export_fn_name, entity.file.relative_path)
 			return
 		end
 		-- Time-limit exceeded: generated while loops throw this table.
 		if type(err) == "table" and err.type == "TIME_LIMIT_EXCEEDED" then
-			entity.state.runtime_error_handler(err.reason, "TIME_LIMIT_EXCEEDED", on_fn_name, entity.file.relative_path)
+			entity.state.runtime_error_handler(
+				err.reason,
+				"TIME_LIMIT_EXCEEDED",
+				export_fn_name,
+				entity.file.relative_path
+			)
 			return
 		end
 		-- Stack overflow: Lua itself throws a string containing "stack overflow".
@@ -3037,7 +3196,7 @@ function TranspilerBackend:call_on_function(entity, on_fn_name, ...) -- luacheck
 			entity.state.runtime_error_handler(
 				"Stack overflow, so check for accidental infinite recursion",
 				"STACK_OVERFLOW",
-				on_fn_name,
+				export_fn_name,
 				entity.file.relative_path
 			)
 			return
@@ -3061,10 +3220,10 @@ function GrugFile.new(
 	relative_path,
 	mod,
 	global_variables,
-	on_fns,
-	helper_fns,
-	game_fns,
-	game_fn_return_types,
+	export_fns,
+	local_fns,
+	host_fns,
+	host_fn_return_types,
 	state,
 	version
 )
@@ -3072,10 +3231,10 @@ function GrugFile.new(
 		relative_path = relative_path,
 		mod = mod,
 		global_variables = global_variables,
-		on_fns = on_fns,
-		helper_fns = helper_fns,
-		game_fns = game_fns,
-		game_fn_return_types = game_fn_return_types,
+		export_fns = export_fns,
+		local_fns = local_fns,
+		host_fns = host_fns,
+		host_fn_return_types = host_fn_return_types,
 		state = state,
 		version = version,
 		entities = setmetatable({}, { __mode = "k" }), -- Files shouldn't keep entities alive.
@@ -3437,41 +3596,41 @@ function grug:_compile_grug_file(grug_file_relative_path)
 
 	local tokens = tokenize(text)
 
-	local ast = Parser.new(tokens):parse()
+	local ast = Parser.new(tokens, text, grug_file_relative_path):parse()
 
 	local mod = grug_file_relative_path:match("([^/]+)")
 
 	local filename = grug_file_relative_path:match("([^/]+)$")
 	local entity_type = get_file_entity_type(filename)
 
-	TypePropagator.new(ast, mod, entity_type, self.mod_api):fill()
+	TypePropagator.new(ast, mod, entity_type, self.mod_api, text, grug_file_relative_path):fill()
 
-	local global_variables, on_fns, helper_fns = {}, {}, {}
+	local global_variables, export_fns, local_fns = {}, {}, {}
 	for _, stmt in ipairs(ast) do
 		if stmt.stmt_type == "VariableStatement" then
 			push(global_variables, stmt)
 		elseif stmt.stmt_type == "OnFn" then
-			on_fns[stmt.fn_name] = stmt
+			export_fns[stmt.fn_name] = stmt
 			stmt.fn_name = nil
 		elseif stmt.stmt_type == "HelperFn" then
-			helper_fns[stmt.fn_name] = stmt
+			local_fns[stmt.fn_name] = stmt
 			stmt.fn_name = nil
 		end
 	end
 
-	local game_fn_return_types = {}
-	for name, decl in pairs(self.mod_api.game_functions) do
-		game_fn_return_types[name] = decl.return_type
+	local host_fn_return_types = {}
+	for name, decl in pairs(self.mod_api.host_functions) do
+		host_fn_return_types[name] = decl.return_type
 	end
 
 	return GrugFile.new(
 		grug_file_relative_path,
 		mod,
 		global_variables,
-		on_fns,
-		helper_fns,
-		self.game_fns,
-		game_fn_return_types,
+		export_fns,
+		local_fns,
+		self.host_fns,
+		host_fn_return_types,
 		self,
 		version
 	)
@@ -3479,7 +3638,7 @@ end
 
 function grug:grug_to_json(input_grug_text) -- luacheck: ignore
 	local tokens = tokenize(input_grug_text)
-	local ast = Parser.new(tokens):parse()
+	local ast = Parser.new(tokens, input_grug_text):parse()
 	return ast_to_json_text(ast)
 end
 
@@ -3489,7 +3648,7 @@ function grug:json_to_grug(input_json_text) -- luacheck: ignore
 end
 
 function grug:register(name, fn)
-	self.game_fns[name] = fn
+	self.host_fns[name] = fn
 end
 
 local function assert_mod_api(mod_api)
@@ -3512,26 +3671,26 @@ local function assert_mod_api(mod_api)
 			)
 		end
 
-		local on_functions = entity.on_functions
-		if on_functions ~= nil and type(on_functions) ~= "table" then
+		local export_functions = entity.export_functions
+		if export_functions ~= nil and type(export_functions) ~= "table" then
 			error(
 				string.format(
-					"Error: 'on_functions' for entity '%s' must be a JSON array, but got %s: %s",
+					"Error: 'export_functions' for entity '%s' must be a JSON array, but got %s: %s",
 					entity_name,
-					type(on_functions),
-					tostring(on_functions)
+					type(export_functions),
+					tostring(export_functions)
 				)
 			)
 		end
 	end
 
-	local game_functions = mod_api.game_functions
-	if type(game_functions) ~= "table" then
+	local host_functions = mod_api.host_functions
+	if type(host_functions) ~= "table" then
 		error(
 			string.format(
-				"Error: 'game_functions' must be a JSON object, but got %s: %s",
-				type(game_functions),
-				tostring(game_functions)
+				"Error: 'host_functions' must be a JSON object, but got %s: %s",
+				type(host_functions),
+				tostring(host_functions)
 			)
 		)
 	end
@@ -3544,8 +3703,8 @@ function grug:get_transpiled_code()
 	return self._latest_transpiled_code
 end
 
-local function default_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path) -- luacheck: ignore
-	print("grug runtime error in " .. on_fn_name .. "(): " .. reason .. ", in " .. on_fn_path)
+local function default_runtime_error_handler(reason, grug_runtime_error_type, export_fn_name, export_fn_path) -- luacheck: ignore
+	print("grug runtime error in " .. export_fn_name .. "(): " .. reason .. ", in " .. export_fn_path)
 end
 
 local bxor
@@ -3597,7 +3756,7 @@ function grug.init(settings)
 	local runtime_error_handler = settings.runtime_error_handler or default_runtime_error_handler
 	local mod_api_path = settings.mod_api_path or "mod_api.json"
 	local mods_dir_path = settings.mods_dir_path or "mods"
-	local on_fn_time_limit_ms = settings.on_fn_time_limit_ms or 100
+	local export_fn_time_limit_ms = settings.export_fn_time_limit_ms or 100
 	local packages = settings.packages or {}
 
 	-- safe_mode=true (the default) means backends must intercept all runtime
@@ -3637,11 +3796,11 @@ function grug.init(settings)
 	return setmetatable({
 		runtime_error_handler = runtime_error_handler,
 		mods_dir_path = mods_dir_path,
-		on_fn_time_limit_ms = on_fn_time_limit_ms,
+		export_fn_time_limit_ms = export_fn_time_limit_ms,
 		packages = packages,
 		fs = fs,
 		mod_api = mod_api,
-		game_fns = {},
+		host_fns = {},
 		next_id = 0,
 		fn_depth = 0,
 		safe_mode = safe_mode,

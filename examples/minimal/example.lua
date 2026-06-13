@@ -16,6 +16,6 @@ local dog2 = file:create_entity()
 
 while true do
 	state:update()
-	dog1:on_bark("woof")
-	dog2:on_bark("arf")
+	dog1:bark("woof")
+	dog2:bark("arf")
 end

@@ -12,6 +12,8 @@ local KEYWORDS = {
 	["break"] = "BREAK_TOKEN",
 	["return"] = "RETURN_TOKEN",
 	["continue"] = "CONTINUE_TOKEN",
+	["export"] = "EXPORT_TOKEN",
+	["local"] = "LOCAL_TOKEN",
 }
 
 local SYMBOLS = {
@@ -40,6 +42,80 @@ local DOUBLE_SYMBOLS = {
 
 local function error_at(msg, line_number)
 	error(msg .. " on line " .. line_number)
+end
+
+-- Returns the 1-based column of the character at `pos` (1-based index into `src`).
+local function get_column(src, pos)
+	local last_newline = 0
+	for j = pos - 1, 1, -1 do
+		if src:sub(j, j) == "\n" then
+			last_newline = j
+			break
+		end
+	end
+	return pos - last_newline
+end
+
+-- Returns the (whitespace-trimmed) source line that contains `pos` (1-based index into `src`).
+local function get_source_line(src, pos)
+	local line_start = pos
+	while line_start > 1 and src:sub(line_start - 1, line_start - 1) ~= "\n" do
+		line_start = line_start - 1
+	end
+
+	local line_end = pos
+	while line_end <= #src and src:sub(line_end, line_end) ~= "\n" do
+		line_end = line_end + 1
+	end
+
+	return (src:sub(line_start, line_end - 1):gsub("^%s+", ""))
+end
+
+-- Human-readable representation of each token type, used in "Expected X but got Y" errors.
+local TOKEN_TYPE_STR = {
+	OPEN_PARENTHESIS_TOKEN = "'('",
+	CLOSE_PARENTHESIS_TOKEN = "')'",
+	OPEN_BRACE_TOKEN = "'{'",
+	CLOSE_BRACE_TOKEN = "'}'",
+	PLUS_TOKEN = "'+'",
+	MINUS_TOKEN = "'-'",
+	MULTIPLICATION_TOKEN = "'*'",
+	DIVISION_TOKEN = "'/'",
+	COMMA_TOKEN = "','",
+	COLON_TOKEN = "':'",
+	NEWLINE_TOKEN = "line break ('\\n')",
+	EQUALS_TOKEN = "'=='",
+	NOT_EQUALS_TOKEN = "'!='",
+	ASSIGNMENT_TOKEN = "'='",
+	GREATER_OR_EQUAL_TOKEN = "'>='",
+	GREATER_TOKEN = "'>'",
+	LESS_OR_EQUAL_TOKEN = "'<='",
+	LESS_TOKEN = "'<'",
+	AND_TOKEN = "'and'",
+	OR_TOKEN = "'or'",
+	NOT_TOKEN = "'not'",
+	TRUE_TOKEN = "'true'",
+	FALSE_TOKEN = "'false'",
+	IF_TOKEN = "'if'",
+	ELSE_TOKEN = "'else'",
+	WHILE_TOKEN = "'while'",
+	BREAK_TOKEN = "'break'",
+	RETURN_TOKEN = "'return'",
+	CONTINUE_TOKEN = "'continue'",
+	EXPORT_TOKEN = "'export'",
+	LOCAL_TOKEN = "'local'",
+	SPACE_TOKEN = "space (' ')",
+	INDENTATION_TOKEN = "indentation",
+	STRING_TOKEN = "string",
+	ENTITY_TOKEN = "entity string",
+	RESOURCE_TOKEN = "resource string",
+	WORD_TOKEN = "word",
+	NUMBER_TOKEN = "number",
+	COMMENT_TOKEN = "comment",
+}
+
+local function token_type_str(token_type)
+	return TOKEN_TYPE_STR[token_type] or token_type
 end
 
 local function tokenize_string(src, line_number, start_idx)
@@ -71,6 +147,9 @@ local function tokenize(src)
 	local line_number = 1
 
 	while i <= #src do
+		local start_i = i
+		local start_line = line_number
+
 		local c = src:sub(i, i)
 		local double_c = src:sub(i, i + 1)
 
@@ -213,6 +292,9 @@ local function tokenize(src)
 		else
 			error_at("Unrecognized character '" .. c .. "'", line_number)
 		end
+
+		tokens[#tokens].pos = start_i
+		tokens[#tokens].line = start_line
 	end
 
 	return tokens

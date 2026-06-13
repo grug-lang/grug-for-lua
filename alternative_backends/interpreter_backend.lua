@@ -67,7 +67,7 @@ function _InterpreterEntity.new(grug_entity)
 		file = grug_entity.file,
 		state = grug_entity.state,
 		local_variables = {},
-		on_fn_depth = 0,
+		export_fn_depth = 0,
 		global_variables = {},
 		fn_name = "",
 		start_time = 0,
@@ -120,18 +120,18 @@ function _InterpreterEntity:_init_globals(global_variables)
 	end
 end
 
-function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
-	local on_fn = self.file.on_fns[on_fn_name]
-	if not on_fn then
+function _InterpreterEntity:_run_export_fn(export_fn_name, ...)
+	local export_fn = self.file.export_fns[export_fn_name]
+	if not export_fn then
 		self._flow = {
 			type = "ERROR",
-			err = "The function '" .. on_fn_name .. "' is not defined by the file " .. self.file.relative_path,
+			err = "The function '" .. export_fn_name .. "' is not defined by the file " .. self.file.relative_path,
 		}
 		return
 	end
 
 	local old_fn_name = self.fn_name
-	self.fn_name = on_fn_name
+	self.fn_name = export_fn_name
 
 	local old_executed_file = self.state._executed_file
 	self.state._executed_file = self.file
@@ -143,7 +143,7 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 	self.local_variables = {}
 
 	-- Assign and verify argument types
-	for i, argument in ipairs(on_fn.arguments) do
+	for i, argument in ipairs(export_fn.arguments) do
 		local arg = args[i]
 
 		if self.state.safe_mode then
@@ -155,7 +155,7 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 					err = string.format(
 						"Argument '%s' of %s() must be %s, got %s",
 						argument.name,
-						on_fn_name,
+						export_fn_name,
 						argument.type_name,
 						type(arg)
 					),
@@ -170,13 +170,13 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 	local old_fn_depth = self.state.fn_depth
 	self.state.fn_depth = self.state.fn_depth + 1
 
-	local old_on_fn_depth = self.on_fn_depth
-	self.on_fn_depth = self.on_fn_depth + 1
-	if self.on_fn_depth == 1 and on_fn.needs_clock then
+	local old_export_fn_depth = self.export_fn_depth
+	self.export_fn_depth = self.export_fn_depth + 1
+	if self.export_fn_depth == 1 and export_fn.needs_clock then
 		self.start_time = clock()
 	end
 
-	self:_run_statements(on_fn.body_statements)
+	self:_run_statements(export_fn.body_statements)
 
 	-- Determine whether to propagate *before* restoring state
 	local flow = self._flow
@@ -192,11 +192,11 @@ function _InterpreterEntity:_run_on_fn(on_fn_name, ...)
 		elseif flow_type == "ERROR" then
 			should_propagate = true
 		end
-		-- RETURN / BREAK / CONTINUE at on_fn level: consumed (not propagated)
+		-- RETURN / BREAK / CONTINUE at export_fn level: consumed (not propagated)
 	end
 
 	self.state.fn_depth = old_fn_depth
-	self.on_fn_depth = old_on_fn_depth
+	self.export_fn_depth = old_export_fn_depth
 	self.local_variables = parent_local_variables
 
 	self.fn_name = old_fn_name
@@ -362,9 +362,9 @@ function _InterpreterEntity:_run_call_expr(call_expr)
 	end
 
 	if string.sub(call_expr.fn_name, 1, 7) == "helper_" then
-		return self:_run_helper_fn(call_expr.fn_name, args)
+		return self:_run_local_fn(call_expr.fn_name, args)
 	else
-		return self:_run_game_fn(call_expr.fn_name, args)
+		return self:_run_host_fn(call_expr.fn_name, args)
 	end
 end
 
@@ -419,7 +419,7 @@ function _InterpreterEntity:_run_while_statement(statement)
 end
 
 function _InterpreterEntity:_check_time_limit_exceeded()
-	local limit_sec = self.file.state.on_fn_time_limit_ms / 1000
+	local limit_sec = self.file.state.export_fn_time_limit_ms / 1000
 	if clock() - self.start_time > limit_sec then
 		self.state.runtime_error_handler(
 			string.format("Took longer than %g milliseconds to run", limit_sec * 1000),
@@ -431,12 +431,12 @@ function _InterpreterEntity:_check_time_limit_exceeded()
 	end
 end
 
-function _InterpreterEntity:_run_helper_fn(name, args)
-	local helper_fn = self.file.helper_fns[name]
+function _InterpreterEntity:_run_local_fn(name, args)
+	local local_fn = self.file.local_fns[name]
 	local parent_local_variables = self.local_variables
 	self.local_variables = {}
 
-	for i, argument in ipairs(helper_fn.arguments) do
+	for i, argument in ipairs(local_fn.arguments) do
 		self.local_variables[argument.name] = args[i]
 	end
 
@@ -466,7 +466,7 @@ function _InterpreterEntity:_run_helper_fn(name, args)
 		end
 	end
 
-	self:_run_statements(helper_fn.body_statements)
+	self:_run_statements(local_fn.body_statements)
 
 	if self.state.safe_mode then
 		self.state.fn_depth = old_fn_depth
@@ -513,9 +513,9 @@ local function _get_wrapper(arg_count)
 	return wrapper
 end
 
-function _InterpreterEntity:_run_game_fn(name, args)
-	local game_fn = self.file.game_fns[name]
-	assert(game_fn)
+function _InterpreterEntity:_run_host_fn(name, args)
+	local host_fn = self.file.host_fns[name]
+	assert(host_fn)
 
 	-- Get or create a wrapper specific to this argument count.
 	local wrapper = _get_wrapper(#args)
@@ -523,10 +523,10 @@ function _InterpreterEntity:_run_game_fn(name, args)
 	-- Call directly (no pcall) so that LuaJIT can trace through game function
 	-- calls without hitting "NYI: return to lower frame" at a C pcall boundary.
 	-- Errors from game functions propagate up to InterpreterBackend:call_on_function,
-	-- which wraps _run_on_fn in a pcall and handles GAME_FN_ERROR there.
-	local result = wrapper(game_fn, self.state, args)
+	-- which wraps _run_export_fn in a pcall and handles GAME_FN_ERROR there.
+	local result = wrapper(host_fn, self.state, args)
 
-	local t = self.file.game_fn_return_types[name]
+	local t = self.file.host_fn_return_types[name]
 	if t == nil then
 		return
 	end
@@ -563,7 +563,7 @@ end
 --     Must set entity.data to backend-specific per-entity state.
 --     May raise a Lua error on runtime failure (e.g. STACK_OVERFLOW).
 --
---   backend:call_on_function(entity, on_fn_name, ...)
+--   backend:call_on_function(entity, export_fn_name, ...)
 --     Execute the named on_ function on entity with the given arguments.
 --     Responsible for pcall, flow-error propagation, and GAME_FN_ERROR handling.
 --     Should re-raise errors (including RERAISED_GAME_FN_ERROR) so callers can
@@ -595,13 +595,13 @@ function InterpreterBackend:init_entity(entity) -- luacheck: ignore
 	entity.data = _InterpreterEntity.new(entity)
 end
 
-local unsafe_on_fn_mt = {
+local unsafe_export_fn_mt = {
 	__call = function(t, self, ...)
-		return self.data:_run_on_fn(t.key, ...)
+		return self.data:_run_export_fn(t.key, ...)
 	end,
 }
 
-local safe_on_fn_mt = {
+local safe_export_fn_mt = {
 	__call = function(t, self, ...)
 		return self.state.backend:call_on_function(self, t.key, ...)
 	end,
@@ -611,24 +611,24 @@ local safe_on_fn_mt = {
 -- If safe mode is disabled, this bypasses error-handling overhead by invoking
 -- the internal AST runner directly. Otherwise, it routes through call_on_function
 -- to ensure pcalls and runtime error handlers are properly applied.
-function InterpreterBackend:get_on_fn(entity, key) -- luacheck: ignore
+function InterpreterBackend:get_export_fn(entity, key) -- luacheck: ignore
 	if not entity.state.safe_mode then
-		return setmetatable({ key = key }, unsafe_on_fn_mt)
+		return setmetatable({ key = key }, unsafe_export_fn_mt)
 	else
-		return setmetatable({ key = key }, safe_on_fn_mt)
+		return setmetatable({ key = key }, safe_export_fn_mt)
 	end
 end
 
--- Execute `on_fn_name` on `entity` with the given arguments.
-function InterpreterBackend:call_on_function(entity, on_fn_name, ...) -- luacheck: ignore
+-- Execute `export_fn_name` on `entity` with the given arguments.
+function InterpreterBackend:call_on_function(entity, export_fn_name, ...) -- luacheck: ignore
 	local interp = entity.data
 
 	if not interp.state.safe_mode then
-		interp:_run_on_fn(on_fn_name, ...)
+		interp:_run_export_fn(export_fn_name, ...)
 		return
 	end
 
-	local ok, err = pcall(interp._run_on_fn, interp, on_fn_name, ...)
+	local ok, err = pcall(interp._run_export_fn, interp, export_fn_name, ...)
 
 	if not ok then
 		interp._flow = nil

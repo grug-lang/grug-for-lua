@@ -40,8 +40,15 @@ local Nodes = {
 	Parenthesized = function(expr)
 		return { expr = expr }
 	end,
-	Variable = function(name, t, tname, expr)
-		return { stmt_type = "VariableStatement", name = name, type = t, type_name = tname, expr = expr }
+	Variable = function(name, t, tname, expr, expr_span)
+		return {
+			stmt_type = "VariableStatement",
+			name = name,
+			type = t,
+			type_name = tname,
+			expr = expr,
+			expr_span = expr_span,
+		}
 	end,
 	CallStmt = function(expr)
 		return { stmt_type = "CallStatement", expr = expr }
@@ -89,17 +96,20 @@ local TYPE_MAP = {
 local Parser = {}
 Parser.__index = Parser
 
-function Parser.new(tokens)
+function Parser.new(tokens, src, file_path)
 	return setmetatable({
 		tokens = tokens,
+		src = src or "",
+		file_path = file_path or "",
+		current_function = nil,
 		idx = 1,
 		ast = {},
-		helper_fns = {},
-		on_fns = {},
+		local_fns = {},
+		export_fns = {},
 		parsing_depth = 0,
 		loop_depth = 0,
 		indentation = 0,
-		called_helper_fn_names = {},
+		called_local_fn_names = {},
 	}, Parser)
 end
 
@@ -113,6 +123,28 @@ function Parser:get_token_line_number(idx)
 		end
 	end
 	return line
+end
+
+-- Builds an error message pointing at `token` (defaults to the current token).
+function Parser:new_error(msg, token)
+	token = token or self:peek()
+
+	local line = token.line or self:get_token_line_number(self.idx)
+	local column = token.pos and get_column(self.src, token.pos) or 1
+	local source_line = token.pos and get_source_line(self.src, token.pos) or ""
+
+	local current_function = self.current_function or "member scope"
+
+	return string.format(
+		"  in %s (%s:%d:%d)\nError: %s\n%d $ %s",
+		current_function,
+		self.file_path,
+		line,
+		column,
+		msg,
+		line,
+		source_line
+	)
 end
 
 function Parser:peek(offset)
@@ -132,14 +164,7 @@ end
 function Parser:assert_type(expected)
 	local t = self:peek()
 	if t.type ~= expected then
-		error(
-			"Expected token type "
-				.. expected
-				.. ", but got "
-				.. t.type
-				.. " on line "
-				.. self:get_token_line_number(self.idx)
-		)
+		error(self:new_error("Expected " .. token_type_str(expected) .. " but got " .. token_type_str(t.type), t))
 	end
 end
 
@@ -152,10 +177,7 @@ function Parser:consume_space()
 	local tok = self:peek()
 	if tok.type ~= "SPACE_TOKEN" then
 		error(
-			"Expected token type SPACE_TOKEN, but got "
-				.. tok.type
-				.. " on line "
-				.. self:get_token_line_number(self.idx)
+			self:new_error("Expected " .. token_type_str("SPACE_TOKEN") .. " but got " .. token_type_str(tok.type), tok)
 		)
 	end
 	self.idx = self.idx + 1
@@ -228,54 +250,53 @@ end
 --- Parsing Methods ---
 
 function Parser:parse()
-	local seen_on_fn, newline_allowed, newline_required = false, false, false
+	local seen_export_fn, newline_allowed, newline_required = false, false, false
 
 	while self.idx <= #self.tokens do
 		local token = self:peek()
-		local next_token = self.idx < #self.tokens and self:peek(1) or nil
 
-		if token.type == "WORD_TOKEN" and next_token and next_token.type == "COLON_TOKEN" then
-			if seen_on_fn then
-				error("Move the global variable '" .. token.value .. "' so it is above the on_ functions")
+		if token.type == "WORD_TOKEN" then
+			self:consume_type("WORD_TOKEN")
+			self:consume_type("COLON_TOKEN")
+
+			if seen_export_fn then
+				error("Move the global variable '" .. token.value .. "' so it is above the export functions")
 			end
+
 			push(self.ast, self:parse_global_variable())
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed, newline_required = true, true
-		elseif
-			token.type == "WORD_TOKEN"
-			and token.value:sub(1, 3) == "on_"
-			and next_token
-			and next_token.type == "OPEN_PARENTHESIS_TOKEN"
-		then
-			if next(self.helper_fns) then
+		elseif token.type == "EXPORT_TOKEN" then
+			self:consume_type("EXPORT_TOKEN")
+			self:consume_space()
+
+			if next(self.local_fns) then
 				error(token.value .. "() must be defined before all helper_ functions")
 			end
 			if newline_required then
 				error("Expected an empty line, on line " .. self:get_token_line_number(self.idx))
 			end
 
-			local fn = self:parse_on_fn()
-			if self.on_fns[fn.fn_name] then
+			local fn = self:parse_export_fn()
+			if self.export_fns[fn.fn_name] then
 				error("The function '" .. fn.fn_name .. "' was defined several times in the same file")
 			end
-			self.on_fns[fn.fn_name] = fn
+			self.export_fns[fn.fn_name] = fn
 			self:consume_type("NEWLINE_TOKEN")
-			seen_on_fn, newline_allowed, newline_required = true, true, true
-		elseif
-			token.type == "WORD_TOKEN"
-			and token.value:sub(1, 7) == "helper_"
-			and next_token
-			and next_token.type == "OPEN_PARENTHESIS_TOKEN"
-		then
+			seen_export_fn, newline_allowed, newline_required = true, true, true
+		elseif token.type == "LOCAL_TOKEN" then
+			self:consume_type("LOCAL_TOKEN")
+			self:consume_space()
+
 			if newline_required then
 				error("Expected an empty line, on line " .. self:get_token_line_number(self.idx))
 			end
 
-			local fn = self:parse_helper_fn()
-			if self.helper_fns[fn.fn_name] then
+			local fn = self:parse_local_fn()
+			if self.local_fns[fn.fn_name] then
 				error("The function '" .. fn.fn_name .. "' was defined several times in the same file")
 			end
-			self.helper_fns[fn.fn_name] = fn
+			self.local_fns[fn.fn_name] = fn
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed, newline_required = true, true
 		elseif token.type == "NEWLINE_TOKEN" then
@@ -332,11 +353,13 @@ function Parser:parse_arguments()
 	return args
 end
 
-function Parser:parse_helper_fn()
+function Parser:parse_local_fn()
 	local name = self:consume().value
-	if not self.called_helper_fn_names[name] then
+	if not self.called_local_fn_names[name] then
 		error(name .. "() is defined before the first time it gets called")
 	end
+
+	self.current_function = name
 
 	local fn = Nodes.HelperFn(name)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
@@ -361,11 +384,14 @@ function Parser:parse_helper_fn()
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
 	push(self.ast, fn)
+	self.current_function = nil
 	return fn
 end
 
-function Parser:parse_on_fn()
+function Parser:parse_export_fn()
 	local name = self:consume().value
+	self.current_function = name
+
 	local fn = Nodes.OnFn(name)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
@@ -375,6 +401,7 @@ function Parser:parse_on_fn()
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(fn)
 	push(self.ast, fn)
+	self.current_function = nil
 	return fn
 end
 
@@ -510,7 +537,14 @@ function Parser:parse_local_variable()
 		error("Assigning a new value to the entity's 'me' variable is not allowed")
 	end
 	self:consume_space()
-	return Nodes.Variable(name, v_type, v_tname, self:parse_expression())
+	local expr_token = self:peek()
+	return Nodes.Variable(
+		name,
+		v_type,
+		v_tname,
+		self:parse_expression(),
+		{ line = expr_token.line, pos = expr_token.pos }
+	)
 end
 
 function Parser:parse_global_variable()
@@ -544,7 +578,14 @@ function Parser:parse_global_variable()
 	self:consume_space()
 	self:consume_type("ASSIGNMENT_TOKEN")
 	self:consume_space()
-	return Nodes.Variable(name, g_type, t_name, self:parse_expression())
+	local expr_token = self:peek()
+	return Nodes.Variable(
+		name,
+		g_type,
+		t_name,
+		self:parse_expression(),
+		{ line = expr_token.line, pos = expr_token.pos }
+	)
 end
 
 function Parser:parse_if_statement()
@@ -648,7 +689,7 @@ function Parser:parse_call()
 	else
 		local fn_name = expr.name
 		if fn_name:sub(1, 7) == "helper_" then
-			self.called_helper_fn_names[fn_name] = true
+			self.called_local_fn_names[fn_name] = true
 		end
 
 		local call = Nodes.Call(fn_name)

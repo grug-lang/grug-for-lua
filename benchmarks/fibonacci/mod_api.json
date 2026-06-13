@@ -2,7 +2,7 @@
     "entities": {
         "Benchmark": {
             "description": "Fibonacci benchmark.",
-            "on_functions": [
+            "export_functions": [
                 {
                     "name": "on_run",
                     "description": "Executes the fibonacci sequence generation."
@@ -10,7 +10,7 @@
             ]
         }
     },
-    "game_functions": {
+    "host_functions": {
         "List": {
             "description": "Creates a new list.",
             "return_type": "List"

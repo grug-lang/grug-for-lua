@@ -2,7 +2,7 @@
     "entities": {
         "Benchmark": {
             "description": "A benchmark.",
-            "on_functions": [
+            "export_functions": [
                 {
                     "name": "on_increment",
                     "description": "Called to increment a member variable."
@@ -14,7 +14,7 @@
             ]
         }
     },
-    "game_functions": {
+    "host_functions": {
         "get_1": {
             "description": "Returns 1.",
             "return_type": "number"

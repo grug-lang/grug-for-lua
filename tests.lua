@@ -101,7 +101,7 @@ ffi.cdef([[
 ]])
 -- luacheck: pop
 
-local game_fn_names = {
+local host_fn_names = {
 	"nothing",
 	"magic",
 	"initialize",
@@ -144,7 +144,7 @@ local game_fn_names = {
 	"box_number",
 }
 
-for _, name in ipairs(game_fn_names) do
+for _, name in ipairs(host_fn_names) do
 	ffi.cdef("uint64_t game_fn_" .. name .. "(void* state_ptr, GrugValueUnion* args);")
 end
 
@@ -162,7 +162,7 @@ local last_file_id = nil
 
 local grug_runtime_err = nil
 
-local game_fn_error_reason = nil
+local host_fn_error_reason = nil
 
 local runtime_error_type_values = {
 	["STACK_OVERFLOW"] = 0,
@@ -170,9 +170,9 @@ local runtime_error_type_values = {
 	["GAME_FN_ERROR"] = 2,
 }
 
-local function custom_runtime_error_handler(reason, grug_runtime_error_type, on_fn_name, on_fn_path)
+local function custom_runtime_error_handler(reason, grug_runtime_error_type, export_fn_name, export_fn_path)
 	local err = assert(runtime_error_type_values[grug_runtime_error_type])
-	grug_lib.grug_tests_runtime_error_handler(reason, err, on_fn_name, on_fn_path)
+	grug_lib.grug_tests_runtime_error_handler(reason, err, export_fn_name, export_fn_path)
 end
 
 -- Convert to string and extract only the numeric digits.
@@ -232,13 +232,13 @@ local LUA_TO_C_ARG = {
 	end,
 }
 
-local function _raise_game_fn_error_if_needed(state)
-	if not game_fn_error_reason then
+local function _raise_host_fn_error_if_needed(state)
+	if not host_fn_error_reason then
 		return
 	end
 
-	local reason = game_fn_error_reason
-	game_fn_error_reason = nil
+	local reason = host_fn_error_reason
+	host_fn_error_reason = nil
 
 	assert(state._executed_file)
 	assert(state._executed_entity)
@@ -255,7 +255,7 @@ end
 
 local function register_fn(state, name)
 	local c_fn = grug_lib["game_fn_" .. name]
-	local return_type = state.mod_api.game_functions[name].return_type
+	local return_type = state.mod_api.host_functions[name].return_type
 
 	state:register(name, function(st, ...) -- luacheck: ignore
 		local args = { ... }
@@ -271,7 +271,7 @@ local function register_fn(state, name)
 
 		local result_u64 = c_fn(ffi.cast("void*", st.id), c_args)
 
-		_raise_game_fn_error_if_needed(st)
+		_raise_host_fn_error_if_needed(st)
 
 		if grug_runtime_err ~= nil then
 			error(grug_runtime_err)
@@ -288,7 +288,7 @@ local function register_fn(state, name)
 end
 
 local function register_fns(state)
-	for _, name in ipairs(game_fn_names) do
+	for _, name in ipairs(host_fn_names) do
 		register_fn(state, name)
 	end
 end
@@ -331,7 +331,7 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 			runtime_error_handler = custom_runtime_error_handler,
 			mod_api_path = mod_api_path,
 			mods_dir_path = mods_dir_path,
-			on_fn_time_limit_ms = 1000,
+			export_fn_time_limit_ms = 1000,
 			fs = {
 				list_dir = list_dir,
 				is_dir = is_dir,
@@ -348,7 +348,7 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 
 	local state_id = #states + 1
 	states[state_id] = state
-	state.id = state_id -- Assign ID to the state for C pointer recovery during game_fn calls
+	state.id = state_id -- Assign ID to the state for C pointer recovery during host_fn calls
 
 	register_fns(state)
 
@@ -489,18 +489,18 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 
 	local file = entity.file
 
-	local on_fn_decl = file.on_fns[fn_name]
-	assert(#on_fn_decl.arguments == args_len)
+	local export_fn_decl = file.export_fns[fn_name]
+	assert(#export_fn_decl.arguments == args_len)
 
 	local lua_args = {}
 	for i = 0, args_len - 1 do
-		local argument_decl = on_fn_decl.arguments[i + 1]
+		local argument_decl = export_fn_decl.arguments[i + 1]
 		push(lua_args, c_to_lua_value(args[i], argument_decl.type_name))
 	end
 
 	local ok, err = pcall(function()
-		local on_fn = entity[fn_name]
-		on_fn(entity, unpacker(lua_args))
+		local export_fn = entity[fn_name]
+		export_fn(entity, unpacker(lua_args))
 	end)
 
 	if not ok then
@@ -554,8 +554,8 @@ end
 callbacks.grug_to_json = make_io_callback("grug_to_json")
 callbacks.json_to_grug = make_io_callback("json_to_grug")
 
-function callbacks.game_fn_error(_state_ptr_, reason_)
-	game_fn_error_reason = ffi.string(reason_)
+function callbacks.host_fn_error(_state_ptr_, reason_)
+	host_fn_error_reason = ffi.string(reason_)
 end
 
 -- Create a table to anchor the C callback closures
@@ -594,7 +594,7 @@ local function reset_state()
 	entities = {}
 	last_file_id = nil
 	grug_runtime_err = nil
-	game_fn_error_reason = nil
+	host_fn_error_reason = nil
 end
 
 local configs = {

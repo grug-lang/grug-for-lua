@@ -38,15 +38,15 @@ local dog2 = file:create_entity()
 
 while true do
 	state:update()
-	dog1:on_bark("woof")
-	dog2:on_bark("arf")
+	dog1:bark("woof")
+	dog2:bark("arf")
 end
 ```
 
 Here is `animals/labrador-Dog.grug`:
 
 ```py
-on_bark(sound: string) {
+export bark(sound: string) {
     print_string(sound)
 
     # Print "arf" a second time

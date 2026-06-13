@@ -116,7 +116,7 @@ local function serialize_global_statement(stmt)
 	local t = stmt.stmt_type
 
 	if t == "OnFn" or t == "HelperFn" then
-		result.type = (t == "OnFn") and "GLOBAL_ON_FN" or "GLOBAL_HELPER_FN"
+		result.type = (t == "OnFn") and "EXPORT_FN" or "LOCAL_FN"
 		result.name = stmt.fn_name
 		result.arguments = serialize_arguments(stmt.arguments)
 
@@ -318,12 +318,12 @@ local function ast_to_grug(ast)
 			write(stmt.name .. ": " .. stmt.variable_type .. " = ", output)
 			apply_expr(stmt.assignment, output)
 			write("\n", output)
-		elseif t == "GLOBAL_ON_FN" or t == "GLOBAL_HELPER_FN" then
+		elseif t == "EXPORT_FN" or t == "LOCAL_FN" then
 			write(stmt.name .. "(", output)
 			apply_args(stmt.arguments, output)
 			write(")", output)
 
-			if t == "GLOBAL_HELPER_FN" and stmt.return_type then
+			if t == "LOCAL_FN" and stmt.return_type then
 				write(" " .. stmt.return_type, output)
 			end
 
