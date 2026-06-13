@@ -113,7 +113,7 @@ python run_benchmarks.py \
   --impl lua5.5 lua5.5.json \
   --impl luajit luajit.json \
   --impl 'luajit -joff' luajit_joff.json \
-  --impl luajitr luajitr.json
+  --impl luajitr luajit_remake.json
 ```
 
 ### Investigating slow benchmarks
