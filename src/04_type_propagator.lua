@@ -283,11 +283,14 @@ function TypePropagator:check_arguments(params, call_expr)
 		if is_string then
 			if param.type == "ENTITY" then
 				error(
-					"The host function '"
-						.. fn_name
-						.. "' expects an entity string, so put an 'e' in front of string \""
-						.. arg.string
-						.. '"'
+					self:new_error(
+						"The host function '"
+							.. fn_name
+							.. "' expects an entity string, so put an 'e' in front of string \""
+							.. arg.string
+							.. '"',
+						arg.span
+					)
 				)
 			elseif param.type == "RESOURCE" then
 				error(

@@ -10,11 +10,11 @@ local Nodes = {
 	False = function()
 		return { bool_val = false, result = "bool" }
 	end,
-	String = function(s)
-		return { string = s, result = "string" }
+	String = function(s, token)
+		return { string = s, result = "string", span = { line = token.line, pos = token.pos } }
 	end,
-	Resource = function(s)
-		return { string = s, result = "resource" }
+	Resource = function(s, token)
+		return { string = s, result = "resource", span = { line = token.line, pos = token.pos } }
 	end,
 	Entity = function(s, token)
 		return { string = s, result = "entity", span = { line = token.line, pos = token.pos } }
@@ -702,11 +702,11 @@ function Parser:parse_primary()
 	elseif t.type == "FALSE_TOKEN" then
 		res = Nodes.False()
 	elseif t.type == "STRING_TOKEN" then
-		res = Nodes.String(t.value)
+		res = Nodes.String(t.value, t)
 	elseif t.type == "ENTITY_TOKEN" then
 		res = Nodes.Entity(t.value, t)
 	elseif t.type == "RESOURCE_TOKEN" then
-		res = Nodes.Resource(t.value)
+		res = Nodes.Resource(t.value, t)
 	elseif t.type == "WORD_TOKEN" then
 		res = Nodes.Identifier(t.value)
 	elseif t.type == "NUMBER_TOKEN" then

@@ -780,11 +780,11 @@ local Nodes = {
 	False = function()
 		return { bool_val = false, result = "bool" }
 	end,
-	String = function(s)
-		return { string = s, result = "string" }
+	String = function(s, token)
+		return { string = s, result = "string", span = { line = token.line, pos = token.pos } }
 	end,
-	Resource = function(s)
-		return { string = s, result = "resource" }
+	Resource = function(s, token)
+		return { string = s, result = "resource", span = { line = token.line, pos = token.pos } }
 	end,
 	Entity = function(s, token)
 		return { string = s, result = "entity", span = { line = token.line, pos = token.pos } }
@@ -1472,11 +1472,11 @@ function Parser:parse_primary()
 	elseif t.type == "FALSE_TOKEN" then
 		res = Nodes.False()
 	elseif t.type == "STRING_TOKEN" then
-		res = Nodes.String(t.value)
+		res = Nodes.String(t.value, t)
 	elseif t.type == "ENTITY_TOKEN" then
 		res = Nodes.Entity(t.value, t)
 	elseif t.type == "RESOURCE_TOKEN" then
-		res = Nodes.Resource(t.value)
+		res = Nodes.Resource(t.value, t)
 	elseif t.type == "WORD_TOKEN" then
 		res = Nodes.Identifier(t.value)
 	elseif t.type == "NUMBER_TOKEN" then
@@ -1888,11 +1888,14 @@ function TypePropagator:check_arguments(params, call_expr)
 		if is_string then
 			if param.type == "ENTITY" then
 				error(
-					"The host function '"
-						.. fn_name
-						.. "' expects an entity string, so put an 'e' in front of string \""
-						.. arg.string
-						.. '"'
+					self:new_error(
+						"The host function '"
+							.. fn_name
+							.. "' expects an entity string, so put an 'e' in front of string \""
+							.. arg.string
+							.. '"',
+						arg.span
+					)
 				)
 			elseif param.type == "RESOURCE" then
 				error(
