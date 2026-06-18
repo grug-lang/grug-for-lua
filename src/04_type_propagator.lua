@@ -54,8 +54,8 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path)
 		mod = mod,
 		file_entity_type = entity_type,
 		mod_api = mod_api,
-		src = src or "",
-		file_path = file_path or "",
+		src = src,
+		file_path = file_path,
 		export_fns = {},
 		local_fns = {},
 		fn_return_type = nil,
@@ -93,9 +93,9 @@ end
 function TypePropagator:new_error(msg, span)
 	local current_function = self.filled_fn_name or "member scope"
 
-	local line = span and span.line or 1
-	local column = span and span.pos and get_column(self.src, span.pos) or 1
-	local source_line = span and span.pos and get_source_line(self.src, span.pos) or ""
+	local line = span and span.line
+	local column = span and span.pos and get_column(self.src, span.pos)
+	local source_line = span and span.pos and get_source_line(self.src, span.pos)
 
 	return string.format(
 		"  in %s (%s:%d:%d)\nError: %s\n%d $ %s",
@@ -152,18 +152,23 @@ local function are_incompatible_types(first_type, first_type_name, second_type, 
 	return true
 end
 
-local function check_chars(s, label, str)
+local function check_chars(self, s, label, str, span)
 	for i = 1, #s do
 		local c = string.sub(s, i, i)
 		if not (string.match(c, "%l") or string.match(c, "%d") or c == "_" or c == "-") then
-			error("Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'")
+			error(
+				self:new_error(
+					"Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'",
+					span
+				)
+			)
 		end
 	end
 end
 
-function TypePropagator:validate_entity_string(str)
+function TypePropagator:validate_entity_string(str, span)
 	if not str or str == "" then
-		error("Entities can't be empty strings")
+		error(self:new_error("Entities can't be empty strings", span))
 	end
 
 	local mod, entity_name = self.mod, str
@@ -171,36 +176,22 @@ function TypePropagator:validate_entity_string(str)
 
 	if colon_pos then
 		if colon_pos == 1 then
-			error("Entity '" .. str .. "' is missing a mod name")
+			error(self:new_error("Entity '" .. str .. "' is missing a mod name", span))
 		end
 
 		mod = string.sub(str, 1, colon_pos - 1)
 		entity_name = string.sub(str, colon_pos + 1)
 
 		if entity_name == "" then
-			error(
-				"Entity '"
-					.. str
-					.. "' specifies the mod name '"
-					.. mod
-					.. "', but it is missing an entity name after the ':'"
-			)
+			error(self:new_error("Entity '" .. str .. "' missing entity name", span))
 		end
 		if mod == self.mod then
-			error(
-				"Entity '"
-					.. str
-					.. "' its mod name '"
-					.. mod
-					.. "' is invalid, since the file it is in refers to its own mod; just change it to '"
-					.. entity_name
-					.. "'"
-			)
+			error(self:new_error("Entity string ('" .. str .. "') cannot refer to its own mod", span))
 		end
 	end
 
-	check_chars(mod, "mod", str)
-	check_chars(entity_name, "entity", str)
+	check_chars(self, mod, "mod", str, span)
+	check_chars(self, entity_name, "entity", str, span)
 end
 
 local function validate_resource_string(str, resource_extension)
@@ -311,7 +302,7 @@ function TypePropagator:check_arguments(params, call_expr)
 
 		if arg.string ~= nil then
 			if arg.result.type == "ENTITY" then
-				self:validate_entity_string(arg.string)
+				self:validate_entity_string(arg.string, arg.span)
 			elseif arg.result.type == "RESOURCE" then
 				validate_resource_string(arg.string, param.resource_extension)
 			end
@@ -393,6 +384,7 @@ local OPERATOR_STR = {
 	MINUS_TOKEN = "-",
 	MULTIPLICATION_TOKEN = "*",
 	DIVISION_TOKEN = "/",
+	NOT_TOKEN = "not",
 }
 
 function TypePropagator:fill_binary_expr(expr)
@@ -473,11 +465,14 @@ function TypePropagator:fill_expr(expr)
 		local op, inner = expr.operator, expr.expr
 		if inner.operator == op and not inner.left_expr then
 			error(
-				"Found '"
-					.. op
-					.. "' directly next to another '"
-					.. op
-					.. "', which can be simplified by just removing both of them"
+				self:new_error(
+					"Found '"
+						.. (OPERATOR_STR[op] or op)
+						.. "' directly next to another '"
+						.. (OPERATOR_STR[op] or op)
+						.. "', which can be simplified by just removing both of them",
+					expr.op_span
+				)
 			)
 		end
 		self:fill_expr(inner)

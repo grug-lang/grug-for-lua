@@ -570,7 +570,7 @@ local vtable_anchors = {
 	call_export_fn = ffi.cast("void (*)(void*, void*, const char*, GrugValueUnion*, size_t)", callbacks.call_export_fn),
 	grug_to_json = ffi.cast("bool (*)(void*, const char*, char*, size_t)", callbacks.grug_to_json),
 	json_to_grug = ffi.cast("bool (*)(void*, const char*, char*, size_t)", callbacks.json_to_grug),
-	game_fn_error = ffi.cast("void (*)(void*, const char*)", callbacks.game_fn_error),
+	game_fn_error = ffi.cast("void (*)(void*, const char*)", callbacks.host_fn_error),
 }
 
 local vtable = ffi.new("grug_state_vtable")

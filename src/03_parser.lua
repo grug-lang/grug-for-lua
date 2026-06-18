@@ -16,8 +16,8 @@ local Nodes = {
 	Resource = function(s)
 		return { string = s, result = "resource" }
 	end,
-	Entity = function(s)
-		return { string = s, result = "entity" }
+	Entity = function(s, token)
+		return { string = s, result = "entity", span = { line = token.line, pos = token.pos } }
 	end,
 	Identifier = function(name)
 		return { name = name }
@@ -100,8 +100,8 @@ Parser.__index = Parser
 function Parser.new(tokens, src, file_path)
 	return setmetatable({
 		tokens = tokens,
-		src = src or "",
-		file_path = file_path or "",
+		src = src,
+		file_path = file_path,
 		current_function = nil,
 		idx = 1,
 		ast = {},
@@ -131,8 +131,8 @@ function Parser:new_error(msg, token)
 	token = token or self:peek()
 
 	local line = token.line or self:get_token_line_number(self.idx)
-	local column = token.pos and get_column(self.src, token.pos) or 1
-	local source_line = token.pos and get_source_line(self.src, token.pos) or ""
+	local column = token.pos and get_column(self.src, token.pos)
+	local source_line = token.pos and get_source_line(self.src, token.pos)
 
 	local current_function = self.current_function or "member scope"
 
@@ -151,7 +151,8 @@ end
 function Parser:peek(offset)
 	local i = self.idx + (offset or 0)
 	if i > #self.tokens then
-		error("token_index " .. (i - 1) .. " was out of bounds in peek_token()")
+		local last_token = (#self.tokens > 0) and self.tokens[#self.tokens] or { line = 1, pos = 1 }
+		return { type = "EOF_TOKEN", line = last_token.line, pos = last_token.pos }
 	end
 	return self.tokens[i]
 end
@@ -164,6 +165,9 @@ end
 
 function Parser:assert_type(expected)
 	local t = self:peek()
+	if t.type == "EOF_TOKEN" then
+		error(self:new_error("Expected " .. token_type_str(expected) .. " but got end of file", t))
+	end
 	if t.type ~= expected then
 		error(self:new_error("Expected " .. token_type_str(expected) .. " but got " .. token_type_str(t.type), t))
 	end
@@ -189,14 +193,7 @@ function Parser:consume_indentation()
 	local spaces = #self:peek().value
 	local expected = self.indentation * SPACES_PER_INDENT
 	if spaces ~= expected then
-		error(
-			"Expected "
-				.. expected
-				.. " spaces, but got "
-				.. spaces
-				.. " spaces on line "
-				.. self:get_token_line_number(self.idx)
-		)
+		error(self:new_error("Expected " .. expected .. " spaces, but got " .. spaces .. " spaces", self:peek()))
 	end
 	self.idx = self.idx + 1
 end
@@ -212,18 +209,18 @@ function Parser:is_end_of_block()
 	if tok.type == "INDENTATION_TOKEN" then
 		return #tok.value == (self.indentation - 1) * SPACES_PER_INDENT
 	end
-	error(
-		"Expected indentation, newline, or '}', but got '"
-			.. tostring(tok.value)
-			.. "' on line "
-			.. self:get_token_line_number(self.idx)
-	)
+	error(self:new_error("Expected indentation, line break, or '}' but got '" .. tostring(tok.value) .. "'", tok))
 end
 
-function Parser:enter_scope()
+function Parser:enter_scope(token)
 	self.parsing_depth = self.parsing_depth + 1
 	if self.parsing_depth >= MAX_PARSING_DEPTH then
-		error("There is a function that contains more than " .. MAX_PARSING_DEPTH .. " levels of nested expressions")
+		error(
+			self:new_error(
+				"There is a function that contains more than " .. MAX_PARSING_DEPTH .. " levels of nested expressions",
+				token or self:peek()
+			)
+		)
 	end
 end
 
@@ -235,7 +232,7 @@ local function get_type(type_str)
 	return TYPE_MAP[type_str] or "ID"
 end
 
-local function validate_fn_body(fn)
+local function validate_fn_body(parser, fn, name_token)
 	local is_empty = true
 	for _, s in ipairs(fn.body_statements) do
 		if s.stmt_type ~= "EmptyLineStatement" and s.stmt_type ~= "CommentStatement" then
@@ -244,7 +241,7 @@ local function validate_fn_body(fn)
 		end
 	end
 	if is_empty then
-		error(fn.fn_name .. "() can't be empty")
+		error(parser:new_error(fn.fn_name .. "() can't be empty", name_token))
 	end
 end
 
@@ -258,7 +255,7 @@ function Parser:parse()
 
 		if token.type == "WORD_TOKEN" then
 			if seen_export_fn then
-				error("Move the global variable '" .. token.value .. "' so it is above the export functions")
+				error(self:new_error("Cannot declare member variables after on_ functions", token))
 			end
 
 			push(self.ast, self:parse_global_variable())
@@ -268,16 +265,22 @@ function Parser:parse()
 			self:consume_type("EXPORT_TOKEN")
 			self:consume_space()
 
+			local name_token = self:peek()
 			if next(self.local_fns) then
-				error(token.value .. "() must be defined before all helper_ functions")
+				error(self:new_error(name_token.value .. "() must be defined before all local functions", name_token))
 			end
 			if newline_required then
-				error("Expected an empty line, on line " .. self:get_token_line_number(self.idx))
+				error(self:new_error("Expected an empty line", name_token))
 			end
 
 			local fn = self:parse_export_fn()
 			if self.export_fns[fn.fn_name] then
-				error("The function '" .. fn.fn_name .. "' was defined several times in the same file")
+				error(
+					self:new_error(
+						"The function '" .. fn.fn_name .. "' was defined several times in the same file",
+						name_token
+					)
+				)
 			end
 			self.export_fns[fn.fn_name] = fn
 			self:consume_type("NEWLINE_TOKEN")
@@ -286,20 +289,26 @@ function Parser:parse()
 			self:consume_type("LOCAL_TOKEN")
 			self:consume_space()
 
+			local name_token = self:peek()
 			if newline_required then
-				error("Expected an empty line, on line " .. self:get_token_line_number(self.idx))
+				error(self:new_error("Expected an empty line", name_token))
 			end
 
 			local fn = self:parse_local_fn()
 			if self.local_fns[fn.fn_name] then
-				error("The function '" .. fn.fn_name .. "' was defined several times in the same file")
+				error(
+					self:new_error(
+						"The function '" .. fn.fn_name .. "' was defined several times in the same file",
+						name_token
+					)
+				)
 			end
 			self.local_fns[fn.fn_name] = fn
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed, newline_required = true, true
 		elseif token.type == "NEWLINE_TOKEN" then
 			if not newline_allowed then
-				error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx))
+				error(self:new_error("Unexpected empty line", token))
 			end
 			push(self.ast, Nodes.EmptyLine())
 			self.idx = self.idx + 1
@@ -310,14 +319,22 @@ function Parser:parse()
 			self:consume_type("NEWLINE_TOKEN")
 			newline_allowed = true
 		else
-			error("Unexpected token '" .. tostring(token.value) .. "' on line " .. self:get_token_line_number(self.idx))
+			error(
+				self:new_error(
+					"Unexpected token '"
+						.. tostring(token.value)
+						.. "' on line "
+						.. self:get_token_line_number(self.idx),
+					token
+				)
+			)
 		end
 	end
 
 	if not newline_allowed and self:get_token_line_number(self.idx - 1) > 1 then
 		-- Verify if last token was newline to trigger the specific trailing empty line error
 		if self.tokens[#self.tokens].type == "NEWLINE_TOKEN" then
-			error("Unexpected empty line, on line " .. self:get_token_line_number(#self.tokens))
+			error(self:new_error("Unexpected empty line", self.tokens[#self.tokens]))
 		end
 	end
 
@@ -327,7 +344,8 @@ end
 function Parser:parse_arguments()
 	local args = {}
 	repeat
-		local name = self:consume().value
+		local name_token = self:consume()
+		local name = name_token.value
 		self:consume_type("COLON_TOKEN")
 		self:consume_space()
 		self:assert_type("WORD_TOKEN")
@@ -336,7 +354,7 @@ function Parser:parse_arguments()
 		local arg_type = get_type(type_name)
 
 		if arg_type == "RESOURCE" or arg_type == "ENTITY" then
-			error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type")
+			error(self:new_error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type", t_token))
 		end
 		push(args, Nodes.Argument(name, arg_type, type_name))
 
@@ -352,9 +370,15 @@ function Parser:parse_arguments()
 end
 
 function Parser:parse_local_fn()
-	local name = self:consume().value
+	local name_token = self:consume()
+	local name = name_token.value
+
+	if string.sub(name, 1, 1) ~= "_" then
+		error(self:new_error("Local function name must begin with '_'", name_token))
+	end
+
 	if not self.called_local_fn_names[name] then
-		error(name .. "() is defined before the first time it gets called")
+		error(self:new_error(name .. "() is defined before the first time it gets called", name_token))
 	end
 
 	self.current_function = name
@@ -373,21 +397,27 @@ function Parser:parse_local_fn()
 			fn.return_type = get_type(next_t.value)
 			fn.return_type_name = next_t.value
 			if fn.return_type == "RESOURCE" or fn.return_type == "ENTITY" then
-				error("The function '" .. name .. "' can't have '" .. fn.return_type_name .. "' as its return type")
+				error(
+					self:new_error(
+						"The function '" .. name .. "' can't have '" .. fn.return_type_name .. "' as its return type",
+						next_t
+					)
+				)
 			end
 		end
 	end
 
 	self.indentation = 0
 	fn.body_statements = self:parse_statements()
-	validate_fn_body(fn)
+	validate_fn_body(self, fn, name_token)
 	push(self.ast, fn)
 	self.current_function = nil
 	return fn
 end
 
 function Parser:parse_export_fn()
-	local name = self:consume().value
+	local name_token = self:consume()
+	local name = name_token.value
 	self.current_function = name
 
 	local fn = Nodes.OnFn(name)
@@ -397,7 +427,7 @@ function Parser:parse_export_fn()
 	end
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 	fn.body_statements = self:parse_statements()
-	validate_fn_body(fn)
+	validate_fn_body(self, fn, name_token)
 	push(self.ast, fn)
 	self.current_function = nil
 	return fn
@@ -417,7 +447,7 @@ function Parser:parse_statements()
 		local tok = self:peek()
 		if tok.type == "NEWLINE_TOKEN" then
 			if not newline_allowed then
-				error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx))
+				error(self:new_error("Unexpected empty line", tok))
 			end
 			self.idx = self.idx + 1
 			newline_allowed = false
@@ -425,13 +455,16 @@ function Parser:parse_statements()
 		else
 			newline_allowed = true
 			self:consume_indentation()
+			if self:peek().type == "NEWLINE_TOKEN" then
+				error(self:new_error("Empty line cannot have indentation", tok))
+			end
 			push(stmts, self:parse_statement())
 			self:consume_type("NEWLINE_TOKEN")
 		end
 	end
 
 	if not newline_allowed and #stmts > 0 and stmts[#stmts].stmt_type == "EmptyLineStatement" then
-		error("Unexpected empty line, on line " .. self:get_token_line_number(self.idx - 1))
+		error(self:new_error("Unexpected empty line", self:peek(-1)))
 	end
 
 	self.indentation = self.indentation - 1
@@ -457,10 +490,13 @@ function Parser:parse_statement()
 			res = self:parse_local_variable()
 		else
 			error(
-				"Expected '(', or ':', or ' =' after the word '"
-					.. tok.value
-					.. "' on line "
-					.. self:get_token_line_number(self.idx)
+				self:new_error(
+					"Expected '(', or ':', or ' =' after the word '"
+						.. tok.value
+						.. "' on line "
+						.. self:get_token_line_number(self.idx),
+					next_t
+				)
 			)
 		end
 	elseif tok.type == "IF_TOKEN" then
@@ -492,10 +528,13 @@ function Parser:parse_statement()
 		res = Nodes.Comment(tok.value)
 	else
 		error(
-			"Expected a statement token, but got token type "
-				.. tok.type
-				.. " on line "
-				.. self:get_token_line_number(self.idx)
+			self:new_error(
+				"Expected a statement token, but got "
+					.. token_type_str(tok.type)
+					.. " on line "
+					.. self:get_token_line_number(self.idx),
+				tok
+			)
 		)
 	end
 
@@ -504,7 +543,6 @@ function Parser:parse_statement()
 end
 
 function Parser:parse_local_variable()
-	local start_idx = self.idx
 	local name_token = self:consume()
 	local name = name_token.value
 	local v_type, v_tname
@@ -522,21 +560,24 @@ function Parser:parse_local_variable()
 		v_type = get_type(v_tname)
 
 		if v_type == "RESOURCE" or v_type == "ENTITY" then
-			error("The variable '" .. name .. "' can't have '" .. v_tname .. "' as its type")
+			error(
+				self:new_error(
+					"The variable '" .. name .. "' can't have '" .. v_tname .. "' as its type",
+					self:peek(-1)
+				)
+			)
 		end
 	end
 
 	if self:peek().type ~= "SPACE_TOKEN" then
-		error(
-			"The variable '" .. name .. "' was not assigned a value on line " .. self:get_token_line_number(start_idx)
-		)
+		error(self:new_error("Variable '" .. name .. "' was not assigned a value", self:peek()))
 	end
 
 	self:consume_space()
 	self:consume_type("ASSIGNMENT_TOKEN")
 
 	if name == "me" then
-		error(self:new_error("Assigning a new value to 'me' is not allowed", name_token))
+		error(self:new_error("Assigning a new value to the entity's 'me' variable is not allowed", name_token))
 	end
 
 	self:consume_space()
@@ -554,7 +595,6 @@ function Parser:parse_local_variable()
 end
 
 function Parser:parse_global_variable()
-	local start_idx = self.idx
 	local name_token = self:consume()
 	local name = name_token.value
 
@@ -571,16 +611,11 @@ function Parser:parse_global_variable()
 	local g_type = get_type(t_name)
 
 	if g_type == "RESOURCE" or g_type == "ENTITY" then
-		error("The global variable '" .. name .. "' can't have '" .. t_name .. "' as its type")
+		error(self:new_error("The global variable '" .. name .. "' can't have '" .. t_name .. "' as its type", t_token))
 	end
 
 	if self:peek().type ~= "SPACE_TOKEN" then
-		error(
-			"The global variable '"
-				.. name
-				.. "' was not assigned a value on line "
-				.. self:get_token_line_number(start_idx)
-		)
+		error(self:new_error("The global variable '" .. name .. "' was not assigned a value", self:peek()))
 	end
 
 	self:consume_space()
@@ -638,25 +673,26 @@ function Parser:parse_while_statement()
 	return res
 end
 
-local function str_to_number(s)
+local function str_to_number(s, parser, token)
 	local f = tonumber(s)
 	if not f or f ~= f or math.abs(f) > MAX_F64 then
-		error("The number " .. s .. " is too big")
+		error(parser:new_error("The number " .. s .. " is too big", token))
 	end
 	if f ~= 0 and math.abs(f) < MIN_F64 then
-		error("The number " .. s .. " is too close to zero")
+		error(parser:new_error("The number " .. s .. " is too close to zero", token))
 	end
 	if f == 0 and s:find("[123456789]") then
-		error("The number " .. s .. " is too close to zero")
+		error(parser:new_error("The number " .. s .. " is too close to zero", token))
 	end
 	return f
 end
 
 function Parser:parse_primary()
-	self:enter_scope()
+	local t = self:peek()
+	self:enter_scope(t)
 
 	local res
-	local t = self:consume()
+	self:consume()
 	if t.type == "OPEN_PARENTHESIS_TOKEN" then
 		local expr = Nodes.Parenthesized(self:parse_expression())
 		self:consume_type("CLOSE_PARENTHESIS_TOKEN")
@@ -668,20 +704,15 @@ function Parser:parse_primary()
 	elseif t.type == "STRING_TOKEN" then
 		res = Nodes.String(t.value)
 	elseif t.type == "ENTITY_TOKEN" then
-		res = Nodes.Entity(t.value)
+		res = Nodes.Entity(t.value, t)
 	elseif t.type == "RESOURCE_TOKEN" then
 		res = Nodes.Resource(t.value)
 	elseif t.type == "WORD_TOKEN" then
 		res = Nodes.Identifier(t.value)
 	elseif t.type == "NUMBER_TOKEN" then
-		res = Nodes.Number(str_to_number(t.value), t.value)
+		res = Nodes.Number(str_to_number(t.value, self, t), t.value)
 	else
-		error(
-			"Expected a primary expression token, but got token type "
-				.. t.type
-				.. " on line "
-				.. self:get_token_line_number(self.idx - 1)
-		)
+		error(self:new_error("Expected a primary expression token but got " .. token_type_str(t.type), t))
 	end
 
 	self:exit_scope()
@@ -696,10 +727,10 @@ function Parser:parse_call()
 	if self:peek().type ~= "OPEN_PARENTHESIS_TOKEN" then
 		res = expr
 	elseif expr.name == nil then
-		error("Unexpected '(' after non-identifier at line " .. self:get_token_line_number(self.idx))
+		error(self:new_error("Expected ')' but got '('", self:peek()))
 	else
 		local fn_name = expr.name
-		if fn_name:sub(1, 7) == "helper_" then
+		if fn_name:sub(1, 1) == "_" then
 			self.called_local_fn_names[fn_name] = true
 		end
 

@@ -309,7 +309,7 @@ function grug:_compile_grug_file(grug_file_relative_path)
 
 	local version = self.fs.get_file_version(grug_file_absolute_path, text)
 
-	local tokens = tokenize(text)
+	local tokens = tokenize(text, grug_file_relative_path)
 
 	local ast = Parser.new(tokens, text, grug_file_relative_path):parse()
 
@@ -351,9 +351,9 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	)
 end
 
-function grug:grug_to_json(input_grug_text) -- luacheck: ignore
-	local tokens = tokenize(input_grug_text)
-	local ast = Parser.new(tokens, input_grug_text):parse()
+function grug:grug_to_json(input_grug_text, file_path) -- luacheck: ignore
+	local tokens = tokenize(input_grug_text, file_path)
+	local ast = Parser.new(tokens, input_grug_text, file_path):parse()
 	return ast_to_json_text(ast)
 end
 
