@@ -173,14 +173,14 @@ local function tokenize_string(src, file_path, line_number, start_idx)
 	return src:sub(start_content, idx - 1), idx, line_number
 end
 
+local function add_token(tokens, type, value, pos, line_number)
+	push(tokens, { type = type, value = value, pos = pos, line = line_number })
+end
+
 local function tokenize(src, file_path)
 	local tokens = {}
 	local i = 1
 	local line_number = 1
-
-	local function add_token(type, value, pos)
-		push(tokens, { type = type, value = value, pos = pos, line = line_number })
-	end
 
 	while i <= #src do
 		local c = src:sub(i, i)
@@ -188,7 +188,7 @@ local function tokenize(src, file_path)
 
 		-- 1. Double-character symbols (==, !=, >=, <=, \r\n)
 		if DOUBLE_SYMBOLS[double_c] then
-			add_token(DOUBLE_SYMBOLS[double_c], double_c, i)
+			add_token(tokens, DOUBLE_SYMBOLS[double_c], double_c, i, line_number)
 			if double_c == "\r\n" then
 				line_number = line_number + 1
 			end
@@ -196,7 +196,7 @@ local function tokenize(src, file_path)
 
 		-- 2. Single-character symbols (+, -, (, ), etc.)
 		elseif SYMBOLS[c] then
-			add_token(SYMBOLS[c], c, i)
+			add_token(tokens, SYMBOLS[c], c, i, line_number)
 			if c == "\n" then
 				line_number = line_number + 1
 			end
@@ -208,7 +208,7 @@ local function tokenize(src, file_path)
 
 			-- Single space
 			if next_c ~= " " then
-				add_token("SPACE_TOKEN", " ", i)
+				add_token(tokens, "SPACE_TOKEN", " ", i, line_number)
 				i = i + 1
 
 			-- Indentation block
@@ -235,14 +235,14 @@ local function tokenize(src, file_path)
 					)
 				end
 
-				add_token("INDENTATION_TOKEN", string.rep(" ", spaces), old_i)
+				add_token(tokens, "INDENTATION_TOKEN", string.rep(" ", spaces), old_i, line_number)
 			end
 
 		-- 4. Standard Strings
 		elseif c == '"' then
 			local token_start = i
 			local str_val, new_i, new_line = tokenize_string(src, file_path, line_number, i)
-			add_token("STRING_TOKEN", str_val, token_start)
+			add_token(tokens, "STRING_TOKEN", str_val, token_start, line_number)
 			i = new_i + 1
 			line_number = new_line
 
@@ -250,7 +250,7 @@ local function tokenize(src, file_path)
 		elseif c == "e" and src:sub(i + 1, i + 1) == '"' then
 			local token_start = i
 			local str_val, new_i, new_line = tokenize_string(src, file_path, line_number, i + 1)
-			add_token("ENTITY_TOKEN", str_val, token_start)
+			add_token(tokens, "ENTITY_TOKEN", str_val, token_start, line_number)
 			i = new_i + 1
 			line_number = new_line
 
@@ -258,7 +258,7 @@ local function tokenize(src, file_path)
 		elseif c == "r" and src:sub(i + 1, i + 1) == '"' then
 			local token_start = i
 			local str_val, new_i, new_line = tokenize_string(src, file_path, line_number, i + 1)
-			add_token("RESOURCE_TOKEN", str_val, token_start)
+			add_token(tokens, "RESOURCE_TOKEN", str_val, token_start, line_number)
 			i = new_i + 1
 			line_number = new_line
 
@@ -271,9 +271,9 @@ local function tokenize(src, file_path)
 
 			local word = src:sub(start, i - 1)
 			if KEYWORDS[word] then
-				add_token(KEYWORDS[word], word, start)
+				add_token(tokens, KEYWORDS[word], word, start, line_number)
 			else
-				add_token("WORD_TOKEN", word, start)
+				add_token(tokens, "WORD_TOKEN", word, start, line_number)
 			end
 
 		-- 8. Numbers (Integers and Floats)
@@ -318,7 +318,7 @@ local function tokenize(src, file_path)
 				)
 			end
 
-			add_token("NUMBER_TOKEN", num_str, start)
+			add_token(tokens, "NUMBER_TOKEN", num_str, start, line_number)
 
 		-- 9. Comments (# ...)
 		elseif c == "#" then
@@ -363,7 +363,7 @@ local function tokenize(src, file_path)
 				)
 			end
 
-			add_token("COMMENT_TOKEN", src:sub(start, i - 1), token_start)
+			add_token(tokens, "COMMENT_TOKEN", src:sub(start, i - 1), token_start, line_number)
 
 		-- 10. Fallback Error
 		else
