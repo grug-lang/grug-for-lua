@@ -249,7 +249,7 @@ function grug:_update()
 	end
 end
 
-local function check_custom_id_is_pascal(type_name)
+local function check_custom_id_is_pascal(type_name, file_path)
 	-- Validate that a custom ID type name is in PascalCase
 
 	if type_name == nil or type_name == "" then
@@ -257,44 +257,50 @@ local function check_custom_id_is_pascal(type_name)
 	end
 
 	if type_name:sub(1, 1):match("%l") then
-		error("'" .. type_name .. "' seems like a custom ID type, but it doesn't start in Uppercase")
+		error(
+			"Error: '"
+				.. type_name
+				.. "' seems like a custom ID type, but it doesn't start in Uppercase\n$  "
+				.. file_path
+		)
 	end
 
 	local bad_char = type_name:match("[^%a%d]")
 	if bad_char then
 		error(
-			"'"
+			"Error: '"
 				.. type_name
 				.. "' seems like a custom ID type, but it contains '"
 				.. bad_char
-				.. "', which isn't uppercase/lowercase/a digit"
+				.. "', which isn't uppercase, lowercase, or a digit\n$  "
+				.. file_path
 		)
 	end
 end
 
-local function get_file_entity_type(grug_filename)
+local function get_file_entity_type(grug_filename, file_path)
 	-- Extract and validate the entity type from a grug filename.
 	-- Example: "furnace-BlockEntity.grug" -> "BlockEntity"
 
 	local dash_index = grug_filename:find("%-") -- escape hyphen in pattern
 
 	if not dash_index or dash_index == #grug_filename then
-		error("'" .. grug_filename .. "' is missing an entity type in its name")
+		error("Error: '" .. grug_filename .. "' is missing an entity type in its name\n$  " .. file_path)
 	end
 
 	local period_index = grug_filename:find("%.", dash_index + 1)
 
 	if not period_index then
-		error("'" .. grug_filename .. "' is missing a period in its filename")
+		error("Error: '" .. grug_filename .. "' is missing a period in its name\n$  " .. file_path)
 	end
 
 	local entity_type = grug_filename:sub(dash_index + 1, period_index - 1)
 
 	if entity_type == "" then
-		error("'" .. grug_filename .. "' is missing an entity type in its name")
+		error("Error: '" .. grug_filename .. "' is missing an entity type in its name\n$  " .. file_path)
 	end
 
-	check_custom_id_is_pascal(entity_type)
+	check_custom_id_is_pascal(entity_type, file_path)
 
 	return entity_type
 end
@@ -316,7 +322,7 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	local mod = grug_file_relative_path:match("([^/]+)")
 
 	local filename = grug_file_relative_path:match("([^/]+)$")
-	local entity_type = get_file_entity_type(filename)
+	local entity_type = get_file_entity_type(filename, grug_file_relative_path)
 
 	TypePropagator.new(ast, mod, entity_type, self.mod_api, text, grug_file_relative_path):fill()
 

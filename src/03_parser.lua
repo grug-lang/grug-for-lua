@@ -19,8 +19,8 @@ local Nodes = {
 	Entity = function(s, token)
 		return { string = s, result = "entity", span = { line = token.line, pos = token.pos } }
 	end,
-	Identifier = function(name)
-		return { name = name }
+	Identifier = function(name, token)
+		return { name = name, span = token and { line = token.line, pos = token.pos } }
 	end,
 	Number = function(v, s)
 		return { value = v, string = s, result = "number" }
@@ -34,8 +34,8 @@ local Nodes = {
 	Logical = function(l, op, r)
 		return { left_expr = l, operator = op, right_expr = r }
 	end,
-	Call = function(name)
-		return { fn_name = name, arguments = {} }
+	Call = function(name, span)
+		return { fn_name = name, arguments = {}, span = span }
 	end,
 	Parenthesized = function(expr)
 		return { expr = expr }
@@ -75,14 +75,27 @@ local Nodes = {
 	Comment = function(s)
 		return { stmt_type = "CommentStatement", string = s }
 	end,
-	Argument = function(name, t, tname)
-		return { name = name, type = t, type_name = tname }
+	Argument = function(name, t, tname, name_span, type_span)
+		return { name = name, type = t, type_name = tname, span = name_span, type_span = type_span }
 	end,
-	OnFn = function(name)
-		return { stmt_type = "OnFn", fn_name = name, arguments = {}, body_statements = {} }
+	OnFn = function(name, token)
+		token = token or { line = 0, pos = 0 }
+		return {
+			stmt_type = "OnFn",
+			fn_name = name,
+			arguments = {},
+			body_statements = {},
+			span = { line = token.line, pos = token.pos },
+		}
 	end,
-	HelperFn = function(name)
-		return { stmt_type = "HelperFn", fn_name = name, arguments = {}, body_statements = {} }
+	HelperFn = function(name, token)
+		return {
+			stmt_type = "HelperFn",
+			fn_name = name,
+			arguments = {},
+			body_statements = {},
+			span = { line = token.line, pos = token.pos },
+		}
 	end,
 }
 
@@ -267,14 +280,17 @@ function Parser:parse()
 
 			local name_token = self:peek()
 			if next(self.local_fns) then
+				self.current_function = name_token.value
 				error(self:new_error(name_token.value .. "() must be defined before all local functions", name_token))
 			end
 			if newline_required then
 				error(self:new_error("Expected an empty line", name_token))
 			end
+			self.current_function = name_token.value
 
 			local fn = self:parse_export_fn()
 			if self.export_fns[fn.fn_name] then
+				self.current_function = fn.fn_name
 				error(
 					self:new_error(
 						"The function '" .. fn.fn_name .. "' was defined several times in the same file",
@@ -346,7 +362,10 @@ function Parser:parse_arguments()
 	repeat
 		local name_token = self:consume()
 		local name = name_token.value
-		self:consume_type("COLON_TOKEN")
+		if self:peek().type ~= "COLON_TOKEN" then
+			error(self:new_error("Unexpected token '" .. name .. "' on line " .. name_token.line, name_token))
+		end
+		self:consume()
 		self:consume_space()
 		self:assert_type("WORD_TOKEN")
 		local t_token = self:consume()
@@ -356,7 +375,16 @@ function Parser:parse_arguments()
 		if arg_type == "RESOURCE" or arg_type == "ENTITY" then
 			error(self:new_error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type", t_token))
 		end
-		push(args, Nodes.Argument(name, arg_type, type_name))
+		push(
+			args,
+			Nodes.Argument(
+				name,
+				arg_type,
+				type_name,
+				{ line = name_token.line, pos = name_token.pos },
+				{ line = t_token.line, pos = t_token.pos }
+			)
+		)
 
 		if self.idx <= #self.tokens and self:peek().type == "COMMA_TOKEN" then
 			self.idx = self.idx + 1
@@ -372,6 +400,7 @@ end
 function Parser:parse_local_fn()
 	local name_token = self:consume()
 	local name = name_token.value
+	self.current_function = name
 
 	if string.sub(name, 1, 1) ~= "_" then
 		error(self:new_error("Local function name must begin with '_'", name_token))
@@ -381,9 +410,7 @@ function Parser:parse_local_fn()
 		error(self:new_error(name .. "() is defined before the first time it gets called", name_token))
 	end
 
-	self.current_function = name
-
-	local fn = Nodes.HelperFn(name)
+	local fn = Nodes.HelperFn(name, name_token)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
 		fn.arguments = self:parse_arguments()
@@ -411,7 +438,6 @@ function Parser:parse_local_fn()
 	fn.body_statements = self:parse_statements()
 	validate_fn_body(self, fn, name_token)
 	push(self.ast, fn)
-	self.current_function = nil
 	return fn
 end
 
@@ -420,7 +446,7 @@ function Parser:parse_export_fn()
 	local name = name_token.value
 	self.current_function = name
 
-	local fn = Nodes.OnFn(name)
+	local fn = Nodes.OnFn(name, name_token)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
 		fn.arguments = self:parse_arguments()
@@ -510,6 +536,7 @@ function Parser:parse_statement()
 			self:consume_space()
 			res = Nodes.Return(self:parse_expression())
 		end
+		res.span = { line = tok.line, pos = tok.pos }
 	elseif tok.type == "WHILE_TOKEN" then
 		self.idx = self.idx + 1
 		res = self:parse_while_statement()
@@ -602,7 +629,10 @@ function Parser:parse_global_variable()
 		error(self:new_error("variable cannot be named 'me'", name_token))
 	end
 
-	self:consume_type("COLON_TOKEN")
+	if self:peek().type ~= "COLON_TOKEN" then
+		error(self:new_error("Unexpected token '" .. name .. "' on line " .. name_token.line, name_token))
+	end
+	self:consume()
 	self:consume_space()
 	self:assert_type("WORD_TOKEN")
 
@@ -699,8 +729,10 @@ function Parser:parse_primary()
 		res = expr
 	elseif t.type == "TRUE_TOKEN" then
 		res = Nodes.True()
+		res.span = { line = t.line, pos = t.pos }
 	elseif t.type == "FALSE_TOKEN" then
 		res = Nodes.False()
+		res.span = { line = t.line, pos = t.pos }
 	elseif t.type == "STRING_TOKEN" then
 		res = Nodes.String(t.value, t)
 	elseif t.type == "ENTITY_TOKEN" then
@@ -708,9 +740,10 @@ function Parser:parse_primary()
 	elseif t.type == "RESOURCE_TOKEN" then
 		res = Nodes.Resource(t.value, t)
 	elseif t.type == "WORD_TOKEN" then
-		res = Nodes.Identifier(t.value)
+		res = Nodes.Identifier(t.value, t)
 	elseif t.type == "NUMBER_TOKEN" then
 		res = Nodes.Number(str_to_number(t.value, self, t), t.value)
+		res.span = { line = t.line, pos = t.pos }
 	else
 		error(self:new_error("Expected a primary expression token but got " .. token_type_str(t.type), t))
 	end
@@ -734,7 +767,7 @@ function Parser:parse_call()
 			self.called_local_fn_names[fn_name] = true
 		end
 
-		local call = Nodes.Call(fn_name)
+		local call = Nodes.Call(fn_name, expr.span)
 		self.idx = self.idx + 1
 		if self:peek().type == "CLOSE_PARENTHESIS_TOKEN" then
 			self.idx = self.idx + 1
