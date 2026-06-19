@@ -361,7 +361,7 @@ function _InterpreterEntity:_run_call_expr(call_expr)
 		push(args, val)
 	end
 
-	if string.sub(call_expr.fn_name, 1, 7) == "helper_" then
+	if string.sub(call_expr.fn_name, 1, 1) == "_" then
 		return self:_run_local_fn(call_expr.fn_name, args)
 	else
 		return self:_run_host_fn(call_expr.fn_name, args)
@@ -479,7 +479,7 @@ function _InterpreterEntity:_run_local_fn(name, args)
 		local flow_type = type(flow) == "table" and flow.type
 		if flow_type == "RETURN" then
 			self._flow = nil
-			return flow.value -- Normal helper return.
+			return flow.value -- Normal local fn return.
 		end
 		-- Anything else (STACK_OVERFLOW, TIME_LIMIT, etc.): leave self._flow set.
 	end
