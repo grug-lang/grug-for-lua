@@ -10,4 +10,4 @@ end)
 
 local file = state.mods["animals"]["labrador-Dog.grug"]
 local e = file:create_entity()
-e:on_nonexistent()
+e:nonexistent()
