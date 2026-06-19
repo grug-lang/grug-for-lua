@@ -1686,7 +1686,7 @@ end
 local TypePropagator = {}
 TypePropagator.__index = TypePropagator
 
-function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path)
+function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods_dir_path)
 	local self = setmetatable({
 		ast = ast,
 		mod = mod,
@@ -1694,6 +1694,7 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path)
 		mod_api = mod_api,
 		src = src,
 		file_path = file_path,
+		mods_dir_path = mods_dir_path,
 		export_fns = {},
 		local_fns = {},
 		fn_return_type = nil,
@@ -1840,6 +1841,16 @@ function TypePropagator:validate_entity_string(str, span)
 	check_chars(self, entity_name, "entity", str, span)
 end
 
+local function file_exists(path)
+	local f = io.open(path, "r")
+	if f ~= nil then
+		io.close(f)
+		return true
+	else
+		return false
+	end
+end
+
 function TypePropagator:validate_resource_string(str, resource_extension, span)
 	if not str or str == "" then
 		error(self:new_error("Resources can't be empty strings", span))
@@ -1900,7 +1911,10 @@ function TypePropagator:validate_resource_string(str, resource_extension, span)
 		end
 	end
 
-	error(self:new_error("resource '" .. str .. "' does not exist", span))
+	local full_path = self.mods_dir_path .. "/" .. self.mod .. "/" .. str
+	if not file_exists(full_path) then
+		error(self:new_error("resource '" .. str .. "' does not exist", span))
+	end
 end
 
 -- --------------------------------------------------------------------------
@@ -2690,7 +2704,7 @@ local function serialize_global_statement(stmt)
 	local t = stmt.stmt_type
 
 	if t == "OnFn" or t == "HelperFn" then
-		result.type = (t == "OnFn") and "EXPORT_FN" or "LOCAL_FN"
+		result.type = (t == "OnFn") and "GLOBAL_ON_FN" or "GLOBAL_HELPER_FN"
 		result.name = stmt.fn_name
 		result.arguments = serialize_arguments(stmt.arguments)
 
@@ -2892,12 +2906,18 @@ local function ast_to_grug(ast)
 			write(stmt.name .. ": " .. stmt.variable_type .. " = ", output)
 			apply_expr(stmt.assignment, output)
 			write("\n", output)
-		elseif t == "EXPORT_FN" or t == "LOCAL_FN" then
+		elseif t == "GLOBAL_ON_FN" or t == "GLOBAL_HELPER_FN" then
+			if t == "GLOBAL_ON_FN" then
+				write("export ", output)
+			elseif t == "GLOBAL_HELPER_FN" then
+				write("local ", output)
+			end
+
 			write(stmt.name .. "(", output)
 			apply_args(stmt.arguments, output)
 			write(")", output)
 
-			if t == "LOCAL_FN" and stmt.return_type then
+			if t == "GLOBAL_HELPER_FN" and stmt.return_type then
 				write(" " .. stmt.return_type, output)
 			end
 
@@ -2928,11 +2948,9 @@ function GrugEntity:__index(key) -- luacheck: ignore
 		return val
 	end
 
-	if type(key) == "string" and string.sub(key, 1, 3) == "on_" then
-		local fn = self.state.backend:get_export_fn(self, key)
-		rawset(self, key, fn) -- cache: future accesses hit the table directly, no __index
-		return fn
-	end
+	local fn = self.state.backend:get_export_fn(self, key)
+	rawset(self, key, fn) -- cache: future accesses hit the table directly, no __index
+	return fn
 end
 
 -- Create a new GrugEntity for `file`.
@@ -3088,7 +3106,7 @@ function Transpiler:emit_call_expr(expr)
 		arg_strs[#arg_strs + 1] = self:emit_expr(arg)
 	end
 
-	if fn_name:sub(1, 7) == "helper_" then
+	if fn_name:sub(1, 1) == "_" then
 		-- Helper functions live in the fns table.
 		return "fns." .. fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	else
@@ -3207,7 +3225,7 @@ function Transpiler:emit_fn(fn_name, fn)
 
 	if self.safe_mode and fn_name:sub(1, 3) == "on_" and fn.needs_clock then
 		self:w("\t_start_time = _clock()\n")
-	elseif self.safe_mode and fn_name:sub(1, 7) == "helper_" then
+	elseif self.safe_mode and fn_name:sub(1, 1) == "_" then
 		self:w("\tif _clock() - _start_time > _time_limit_sec then\n")
 		self:w(
 			'\t\terror({ type = "TIME_LIMIT_EXCEEDED",'
@@ -3923,7 +3941,7 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	local filename = grug_file_relative_path:match("([^/]+)$")
 	local entity_type = get_file_entity_type(filename, grug_file_relative_path)
 
-	TypePropagator.new(ast, mod, entity_type, self.mod_api, text, grug_file_relative_path):fill()
+	TypePropagator.new(ast, mod, entity_type, self.mod_api, text, grug_file_relative_path, self.mods_dir_path):fill()
 
 	local global_variables, export_fns, local_fns = {}, {}, {}
 	for _, stmt in ipairs(ast) do

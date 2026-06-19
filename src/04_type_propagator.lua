@@ -48,7 +48,7 @@ end
 local TypePropagator = {}
 TypePropagator.__index = TypePropagator
 
-function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path)
+function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods_dir_path)
 	local self = setmetatable({
 		ast = ast,
 		mod = mod,
@@ -56,6 +56,7 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path)
 		mod_api = mod_api,
 		src = src,
 		file_path = file_path,
+		mods_dir_path = mods_dir_path,
 		export_fns = {},
 		local_fns = {},
 		fn_return_type = nil,
@@ -202,6 +203,16 @@ function TypePropagator:validate_entity_string(str, span)
 	check_chars(self, entity_name, "entity", str, span)
 end
 
+local function file_exists(path)
+	local f = io.open(path, "r")
+	if f ~= nil then
+		io.close(f)
+		return true
+	else
+		return false
+	end
+end
+
 function TypePropagator:validate_resource_string(str, resource_extension, span)
 	if not str or str == "" then
 		error(self:new_error("Resources can't be empty strings", span))
@@ -262,7 +273,10 @@ function TypePropagator:validate_resource_string(str, resource_extension, span)
 		end
 	end
 
-	error(self:new_error("resource '" .. str .. "' does not exist", span))
+	local full_path = self.mods_dir_path .. "/" .. self.mod .. "/" .. str
+	if not file_exists(full_path) then
+		error(self:new_error("resource '" .. str .. "' does not exist", span))
+	end
 end
 
 -- --------------------------------------------------------------------------

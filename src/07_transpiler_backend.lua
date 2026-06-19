@@ -127,7 +127,7 @@ function Transpiler:emit_call_expr(expr)
 		arg_strs[#arg_strs + 1] = self:emit_expr(arg)
 	end
 
-	if fn_name:sub(1, 7) == "helper_" then
+	if fn_name:sub(1, 1) == "_" then
 		-- Helper functions live in the fns table.
 		return "fns." .. fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
 	else
@@ -246,7 +246,7 @@ function Transpiler:emit_fn(fn_name, fn)
 
 	if self.safe_mode and fn_name:sub(1, 3) == "on_" and fn.needs_clock then
 		self:w("\t_start_time = _clock()\n")
-	elseif self.safe_mode and fn_name:sub(1, 7) == "helper_" then
+	elseif self.safe_mode and fn_name:sub(1, 1) == "_" then
 		self:w("\tif _clock() - _start_time > _time_limit_sec then\n")
 		self:w(
 			'\t\terror({ type = "TIME_LIMIT_EXCEEDED",'

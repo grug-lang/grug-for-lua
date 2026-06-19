@@ -324,7 +324,7 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	local filename = grug_file_relative_path:match("([^/]+)$")
 	local entity_type = get_file_entity_type(filename, grug_file_relative_path)
 
-	TypePropagator.new(ast, mod, entity_type, self.mod_api, text, grug_file_relative_path):fill()
+	TypePropagator.new(ast, mod, entity_type, self.mod_api, text, grug_file_relative_path, self.mods_dir_path):fill()
 
 	local global_variables, export_fns, local_fns = {}, {}, {}
 	for _, stmt in ipairs(ast) do
