@@ -3269,7 +3269,7 @@ function Transpiler:generate()
 	--    _time_limit_sec is injected by fns.init() from deps._time_limit_sec.
 	if self.safe_mode then
 		self:w("local _clock = os.clock\n")
-		self:w("local _start_time = 0\n")
+		self:w("local _start_time = _clock()\n")
 		self:w("local _time_limit_sec = 0\n\n")
 	end
 
