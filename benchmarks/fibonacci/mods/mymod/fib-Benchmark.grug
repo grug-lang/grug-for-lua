@@ -1,32 +1,32 @@
 count: number = 50
 
-on_run() {
-    fib_numbers: List = helper_fib_list(count)
+export run() {
+    fib_numbers: List = _fib_list(count)
     assert_fib(fib_numbers)
 }
 
-helper_fib_list(n: number) List {
+local _fib_list(n: number) List {
     fib_list: List = List()
 
     memo: Dict = Dict()
 
     i: number = 0
     while i <= n {
-        list_append(fib_list, helper_fib(i, memo))
+        list_append(fib_list, _fib(i, memo))
         i = i + 1
     }
 
     return fib_list
 }
 
-helper_fib(n: number, memo: Dict) number {
+local _fib(n: number, memo: Dict) number {
     if dict_has_key(memo, n) {
         return dict_get(memo, n)
     }
 
     result: number = n
     if n > 1 {
-        result = helper_fib(n - 1, memo) + helper_fib(n - 2, memo)
+        result = _fib(n - 1, memo) + _fib(n - 2, memo)
     }
 
     dict_set(memo, n, result)

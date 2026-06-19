@@ -17,9 +17,9 @@ local function benchmark(state, name)
 	local file = state.mods["mymod"]["incrementer-Benchmark.grug"]
 	local e = file:create_entity()
 
-	local on_inc = e.on_increment
-	utils.benchmark(name, on_inc, e)
-	e:on_print()
+	local inc = e.increment
+	utils.benchmark(name, inc, e)
+	e:print()
 end
 
 utils.benchmark_interpreter_and_transpiler({
@@ -27,9 +27,9 @@ utils.benchmark_interpreter_and_transpiler({
 }, benchmark, fns)
 
 local function benchmark_ref(ref, name)
-	local on_inc = ref.on_increment
-	utils.benchmark(name, on_inc)
-	ref.on_print()
+	local inc = ref.increment
+	utils.benchmark(name, inc)
+	ref.print()
 end
 
 utils.benchmark_safe_and_unsafe_lua_references(fns, benchmark_ref)

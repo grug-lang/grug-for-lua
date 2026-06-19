@@ -1,4 +1,4 @@
-on_run() {
+export run() {
     sum: number = 0
     i: number = 0
     while i < 1000 {

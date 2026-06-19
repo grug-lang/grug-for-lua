@@ -12,7 +12,7 @@ local e = {
 	me = nil,
 }
 
-function fns.on_run()
+function fns.run()
 	_start_time = _clock()
 	local sum = 0
 	local i = 0

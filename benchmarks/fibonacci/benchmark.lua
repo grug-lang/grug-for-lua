@@ -61,8 +61,8 @@ local function benchmark(state, name)
 	local file = state.mods["mymod"]["fib-Benchmark.grug"]
 	local e = file:create_entity()
 
-	local on_run = e.on_run
-	utils.benchmark(name, on_run, e)
+	local run = e.run
+	utils.benchmark(name, run, e)
 end
 
 utils.benchmark_interpreter_and_transpiler({
@@ -70,8 +70,8 @@ utils.benchmark_interpreter_and_transpiler({
 }, benchmark, fns)
 
 local function benchmark_ref(ref, name)
-	local on_run = ref.on_run
-	utils.benchmark(name, on_run)
+	local run = ref.run
+	utils.benchmark(name, run)
 end
 
 utils.benchmark_safe_and_unsafe_lua_references(fns, benchmark_ref)

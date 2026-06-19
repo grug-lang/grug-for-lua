@@ -9,11 +9,11 @@ local e = {
 	i = nil,
 }
 
-function fns.on_increment()
+function fns.increment()
 	e.i = (e.i + get_1(e.state))
 end
 
-function fns.on_print()
+function fns.print()
 	print_number(e.state, e.i)
 end
 

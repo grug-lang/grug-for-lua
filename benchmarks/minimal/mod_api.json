@@ -4,11 +4,11 @@
             "description": "A benchmark.",
             "export_functions": [
                 {
-                    "name": "on_increment",
+                    "name": "increment",
                     "description": "Called to increment a member variable."
                 },
                 {
-                    "name": "on_print",
+                    "name": "print",
                     "description": "Prints the member variable."
                 }
             ]

@@ -8,7 +8,7 @@ local e = {
 	me = nil,
 }
 
-function fns.on_run()
+function fns.run()
 	local sum = 0
 	local i = 0
 	while (i < 1000) do
