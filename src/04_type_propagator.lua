@@ -411,8 +411,6 @@ function TypePropagator:fill_call_expr(expr)
 
 	if self.export_fns[fn_name] then
 		error(self:new_error("Mods aren't allowed to call their own export functions", expr.span))
-	elseif string.sub(fn_name, 1, 3) == "on_" then
-		error("Mods aren't allowed to call their own on_ functions, but '" .. fn_name .. "' was called")
 	elseif string.sub(fn_name, 1, 1) == "_" then
 		error(self:new_error("The local function '" .. fn_name .. "' was not defined by this grug file", expr.span))
 	end

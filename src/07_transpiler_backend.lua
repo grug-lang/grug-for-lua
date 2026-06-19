@@ -244,7 +244,7 @@ function Transpiler:emit_fn(fn_name, fn)
 
 	self:w("function fns." .. fn_name .. "(" .. table.concat(params, ", ") .. ")\n")
 
-	if self.safe_mode and fn_name:sub(1, 3) == "on_" and fn.needs_clock then
+	if self.safe_mode and fn_name:sub(1, 1) ~= "_" and fn.needs_clock then
 		self:w("\t_start_time = _clock()\n")
 	elseif self.safe_mode and fn_name:sub(1, 1) == "_" then
 		self:w("\tif _clock() - _start_time > _time_limit_sec then\n")
@@ -290,7 +290,7 @@ function Transpiler:generate()
 	--    _time_limit_sec is injected by fns.init() from deps._time_limit_sec.
 	if self.safe_mode then
 		self:w("local _clock = os.clock\n")
-		self:w("local _start_time = _clock()\n")
+		self:w("local _start_time = 0\n")
 		self:w("local _time_limit_sec = 0\n\n")
 	end
 
@@ -401,13 +401,6 @@ local loader = loadstring or load
 
 -- Populate entity.data with a fresh chunk execution (its own `e` upvalue closure).
 function TranspilerBackend:init_entity(entity) -- luacheck: ignore
-	-- Evict any rawset-cached on_ functions so new hot reloaded versions are used
-	for k in pairs(entity) do
-		if type(k) == "string" and k:sub(1, 3) == "on_" then
-			rawset(entity, k, nil)
-		end
-	end
-
 	local code = entity.file._transpiled_code
 
 	-- Dump transpiled source to disk before loading, if requested.
