@@ -3918,7 +3918,7 @@ function grug:_compile_grug_file(grug_file_relative_path)
 
 	local text = self.fs.read(grug_file_absolute_path)
 	if text == "" then
-		error("File is empty")
+		error("Error: File is empty\n$  " .. grug_file_relative_path)
 	end
 
 	local version = self.fs.get_file_version(grug_file_absolute_path, text)
