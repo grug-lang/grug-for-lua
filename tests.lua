@@ -117,6 +117,7 @@ local host_fn_names = {
 	"mega_f32",
 	"mega_i32",
 	"draw",
+	"utils",
 	"assert_state_is_not_null",
 	"blocked_alrm",
 	"spawn",
@@ -149,14 +150,23 @@ for _, name in ipairs(host_fn_names) do
 	ffi.cdef("uint64_t game_fn_" .. name .. "(void* state_ptr, GrugValueUnion* args);")
 end
 
-local method_names = {
-	push = "vec_number_push",
-	pop = "vec_number_pop",
-	insert = "vec_number_insert",
+local classes = {
+	VecNumber = {
+		push = "vec_number_push",
+		pop = "vec_number_pop",
+		insert = "vec_number_insert",
+	},
+	Utils = {
+		assert_state_is_not_null = "Utils_assert_state_is_not_null",
+		cause_game_fn_error = "Utils_cause_game_fn_error",
+		call_on_b_fn = "Utils_call_on_b_fn",
+	},
 }
 
-for _, native_name in pairs(method_names) do
-	ffi.cdef("uint64_t game_fn_" .. native_name .. "(void* state_ptr, GrugValueUnion* args);")
+for _, methods in pairs(classes) do
+	for _, native_name in pairs(methods) do
+		ffi.cdef("uint64_t game_fn_" .. native_name .. "(void* state_ptr, GrugValueUnion* args);")
+	end
 end
 
 local grug_lib = ffi.load(grug_tests_path .. "/build/libtests.so")
@@ -307,35 +317,34 @@ local function register_method(state, class_name, name, native_name)
 	local method = class.methods[name]
 	local return_type = method.return_type
 
-	-- TODO: Turn this fn logic into method logic
-	-- state:register_method(name, function(st, ...) -- luacheck: ignore
-	-- 	local args = { ... }
-	-- 	local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
+	state:register_method(class_name, name, function(st, ...) -- luacheck: ignore
+		local args = { ... }
+		local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
 
-	-- 	for i, v in ipairs(args) do
-	-- 		local setter = LUA_TO_C_ARG[type(v)]
-	-- 		if not setter then
-	-- 			error("Unsupported argument type: " .. type(v))
-	-- 		end
-	-- 		setter(c_args[i - 1], v)
-	-- 	end
+		for i, v in ipairs(args) do
+			local setter = LUA_TO_C_ARG[type(v)]
+			if not setter then
+				error("Unsupported argument type: " .. type(v))
+			end
+			setter(c_args[i - 1], v)
+		end
 
-	-- 	local result_u64 = c_fn(ffi.cast("void*", st.id), c_args)
+		local result_u64 = c_fn(ffi.cast("void*", st.id), c_args)
 
-	-- 	_raise_host_fn_error_if_needed(st)
+		_raise_host_fn_error_if_needed(st)
 
-	-- 	if grug_runtime_err ~= nil then
-	-- 		error(grug_runtime_err)
-	-- 	end
+		if grug_runtime_err ~= nil then
+			error(grug_runtime_err)
+		end
 
-	-- 	local tmp = ffi.new("uint64_t[1]")
-	-- 	tmp[0] = result_u64
+		local tmp = ffi.new("uint64_t[1]")
+		tmp[0] = result_u64
 
-	-- 	local union = ffi.new("GrugValueUnion")
-	-- 	ffi.copy(ffi.cast("void*", union), tmp, ffi.sizeof("GrugValueUnion"))
+		local union = ffi.new("GrugValueUnion")
+		ffi.copy(ffi.cast("void*", union), tmp, ffi.sizeof("GrugValueUnion"))
 
-	-- 	return c_to_lua_value(union, return_type)
-	-- end)
+		return c_to_lua_value(union, return_type)
+	end)
 end
 
 local function is_dir(path)
@@ -385,8 +394,10 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 			backend = current_config.backend,
 		})
 
-		for method_name, native_name in pairs(method_names) do
-			register_method(state, "VecNumber", method_name, native_name)
+		for class_name, methods in pairs(classes) do
+			for method_name, native_name in pairs(methods) do
+				register_method(state, class_name, method_name, native_name)
+			end
 		end
 
 		for _, name in ipairs(host_fn_names) do

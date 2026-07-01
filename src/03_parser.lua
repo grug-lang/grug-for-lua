@@ -34,8 +34,8 @@ local Nodes = {
 	Logical = function(l, op, r)
 		return { left_expr = l, operator = op, right_expr = r }
 	end,
-	Call = function(name, span)
-		return { fn_name = name, arguments = {}, span = span }
+	Call = function(name, span, receiver)
+		return { fn_name = name, arguments = {}, span = span, receiver = receiver }
 	end,
 	Parenthesized = function(expr)
 		return { expr = expr }
@@ -510,8 +510,8 @@ function Parser:parse_statement()
 	local tok = self:peek()
 	if tok.type == "WORD_TOKEN" then
 		local next_t = self:peek(1)
-		if next_t.type == "OPEN_PARENTHESIS_TOKEN" then
-			res = Nodes.CallStmt(self:parse_call())
+		if next_t.type == "OPEN_PARENTHESIS_TOKEN" or next_t.type == "DOT_TOKEN" then
+			res = Nodes.CallStmt(self:try_parse_method(self:parse_call()))
 		elseif next_t.type == "COLON_TOKEN" or next_t.type == "SPACE_TOKEN" then
 			res = self:parse_local_variable()
 		else
@@ -791,6 +791,46 @@ function Parser:parse_call()
 	return res
 end
 
+-- If a "." follows `expr`, parses a chain of method calls (`expr.method(args)`).
+-- Chained calls are still parsed here (`a.b().c()`) so that the type propagator
+-- can reject method chaining with a proper error, rather than the parser
+-- silently stopping partway through.
+function Parser:try_parse_method(expr)
+	while self:peek().type == "DOT_TOKEN" do
+		self.idx = self.idx + 1 -- consume '.'
+		local receiver = expr
+
+		self:assert_type("WORD_TOKEN") -- method name must be a word
+		local name_t = self:peek()
+		self.idx = self.idx + 1 -- consume the method name
+
+		if self:peek().type ~= "OPEN_PARENTHESIS_TOKEN" then
+			error(self:new_error("Method call expected '('", self:peek()))
+		end
+		self.idx = self.idx + 1 -- consume '('
+
+		local call = Nodes.Call(name_t.value, receiver.span, receiver)
+
+		if self:peek().type == "CLOSE_PARENTHESIS_TOKEN" then
+			self.idx = self.idx + 1
+		else
+			repeat
+				push(call.arguments, self:parse_expression())
+				if self:peek().type == "COMMA_TOKEN" then
+					self.idx = self.idx + 1
+					self:consume_space()
+				else
+					self:consume_type("CLOSE_PARENTHESIS_TOKEN")
+					break
+				end
+			until false
+		end
+
+		expr = call
+	end
+	return expr
+end
+
 function Parser:parse_unary()
 	self:enter_scope()
 
@@ -807,7 +847,7 @@ function Parser:parse_unary()
 			pos = t.pos,
 		}
 	else
-		res = self:parse_call()
+		res = self:try_parse_method(self:parse_call())
 	end
 
 	self:exit_scope()

@@ -70,6 +70,7 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods
 		local_variables = {},
 		global_variables = {},
 		host_functions = {},
+		classes = {},
 		entity_export_functions = {},
 	}, TypePropagator)
 
@@ -83,6 +84,14 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods
 
 	for fn_name, fn in pairs(mod_api.host_functions) do
 		self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
+	end
+
+	for class_name, class_def in pairs(mod_api.classes or {}) do
+		local methods = {}
+		for method_name, method_def in pairs(class_def.methods or {}) do
+			methods[method_name] = parse_host_fn(method_name, method_def)
+		end
+		self.classes[class_name] = methods
 	end
 
 	local entity_cfg = mod_api.entities and mod_api.entities[entity_type]
@@ -421,6 +430,59 @@ function TypePropagator:fill_call_expr(expr)
 	error(self:new_error("The game function '" .. fn_name .. "' was not declared by mod_api.json", expr.span))
 end
 
+function TypePropagator:fill_method_expr(expr)
+	local receiver = expr.receiver
+
+	-- Method chaining is not allowed, e.g. `a.b().c()` or `foo().c()`.
+	if receiver.fn_name then
+		if not receiver.receiver then
+			error(self:new_error("Cannot call method on the result of a function call", expr.span))
+		else
+			error(self:new_error("Method chaining is not allowed", expr.span))
+		end
+	end
+
+	self:fill_expr(receiver)
+
+	local receiver_type_name
+	if receiver.result.type == "ID" then
+		receiver_type_name = receiver.result.type_name
+	else
+		error(self:new_error("Cannot call method on '" .. tostring(receiver.result.type_name) .. "' type", expr.span))
+	end
+
+	for _, arg in ipairs(expr.arguments) do
+		self:fill_expr(arg)
+	end
+
+	local available_methods = self.classes[receiver_type_name]
+	if not available_methods then
+		error(self:new_error("Type '" .. receiver_type_name .. "' does not have any methods", expr.span))
+	end
+
+	local method = available_methods[expr.fn_name]
+	if not method then
+		error(
+			self:new_error(
+				"Cannot find method '" .. expr.fn_name .. "' on type '" .. receiver_type_name .. "'",
+				expr.span
+			)
+		)
+	end
+
+	self:check_arguments(method.parameters, expr)
+	expr.result = { type = method.return_type, type_name = method.return_type_name }
+
+	-- Track which class methods are actually used, the same way host functions
+	-- are tracked, so the transpiler only emits upvalues it needs.
+	local mangled = receiver_type_name .. "__" .. expr.fn_name
+	if self.current_fn then
+		self.current_fn.used_host_fns[mangled] = true
+	elseif self.current_global then
+		self.current_global.used_host_fns[mangled] = true
+	end
+end
+
 local OPERATOR_STR = {
 	GREATER_OR_EQUAL_TOKEN = ">=",
 	GREATER_TOKEN = ">",
@@ -566,7 +628,11 @@ function TypePropagator:fill_expr(expr)
 	elseif expr.operator and expr.left_expr then
 		self:fill_binary_expr(expr)
 	elseif expr.fn_name then
-		self:fill_call_expr(expr)
+		if expr.receiver then
+			self:fill_method_expr(expr)
+		else
+			self:fill_call_expr(expr)
+		end
 	elseif expr.expr and not expr.operator then
 		self:fill_expr(expr.expr)
 		expr.result.type, expr.result.type_name = expr.expr.result.type, expr.expr.result.type_name
@@ -630,7 +696,11 @@ function TypePropagator:fill_statements(statements)
 				end
 			end
 		elseif stype == "CallStatement" then
-			self:fill_call_expr(stmt.expr)
+			if stmt.expr.receiver then
+				self:fill_method_expr(stmt.expr)
+			else
+				self:fill_call_expr(stmt.expr)
+			end
 		elseif stype == "IfStatement" then
 			self:fill_expr(stmt.condition)
 			if stmt.condition.result.type ~= "BOOL" then

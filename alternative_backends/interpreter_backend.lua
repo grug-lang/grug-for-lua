@@ -353,6 +353,15 @@ end
 
 function _InterpreterEntity:_run_call_expr(call_expr)
 	local args = {}
+
+	if call_expr.receiver then
+		local receiver_val = self:_run_expr(call_expr.receiver)
+		if self._flow then
+			return
+		end
+		push(args, receiver_val)
+	end
+
 	for _, arg in ipairs(call_expr.arguments) do
 		local val = self:_run_expr(arg)
 		if self._flow then
@@ -361,7 +370,14 @@ function _InterpreterEntity:_run_call_expr(call_expr)
 		push(args, val)
 	end
 
-	if string.sub(call_expr.fn_name, 1, 1) == "_" then
+	if call_expr.receiver then
+		-- Method call: dispatch to the class method registered under its
+		-- mangled "ClassName__methodName" name (see grug:register_method).
+		-- The receiver's static type name is known at this point, since the
+		-- type propagator already ran and filled call_expr.receiver.result.
+		local mangled = call_expr.receiver.result.type_name .. "__" .. call_expr.fn_name
+		return self:_run_host_fn(mangled, args)
+	elseif string.sub(call_expr.fn_name, 1, 1) == "_" then
 		return self:_run_local_fn(call_expr.fn_name, args)
 	else
 		return self:_run_host_fn(call_expr.fn_name, args)

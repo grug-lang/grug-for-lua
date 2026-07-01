@@ -343,6 +343,11 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	for name, decl in pairs(self.mod_api.host_functions) do
 		host_fn_return_types[name] = decl.return_type
 	end
+	for class_name, class_def in pairs(self.mod_api.classes or {}) do
+		for method_name, method_def in pairs(class_def.methods or {}) do
+			host_fn_return_types[class_name .. "__" .. method_name] = method_def.return_type
+		end
+	end
 
 	return GrugFile.new(
 		grug_file_relative_path,
@@ -370,6 +375,14 @@ end
 
 function grug:register_fn(name, fn)
 	self.host_fns[name] = fn
+end
+
+-- Registers a method `fn` for `method_name` on class `class_name` (as declared
+-- under mod_api.classes[class_name].methods). Internally this is stored in the
+-- same table as register_fn(), under a mangled "ClassName__methodName" key, so
+-- it's picked up automatically wherever host functions are injected.
+function grug:register_method(class_name, method_name, fn)
+	self.host_fns[class_name .. "__" .. method_name] = fn
 end
 
 local function assert_mod_api(mod_api)
@@ -402,6 +415,44 @@ local function assert_mod_api(mod_api)
 					tostring(export_functions)
 				)
 			)
+		end
+	end
+
+	local classes = mod_api.classes
+	if classes ~= nil then
+		if type(classes) ~= "table" then
+			error(
+				string.format(
+					"Error: 'classes' must be a JSON object, but got %s: %s",
+					type(classes),
+					tostring(classes)
+				)
+			)
+		end
+
+		for class_name, class_def in pairs(classes) do
+			if type(class_def) ~= "table" then
+				error(
+					string.format(
+						"Error: class '%s' must be a JSON object, but got %s: %s",
+						class_name,
+						type(class_def),
+						tostring(class_def)
+					)
+				)
+			end
+
+			local methods = class_def.methods
+			if methods ~= nil and type(methods) ~= "table" then
+				error(
+					string.format(
+						"Error: 'methods' for class '%s' must be a JSON object, but got %s: %s",
+						class_name,
+						type(methods),
+						tostring(methods)
+					)
+				)
+			end
 		end
 	end
 

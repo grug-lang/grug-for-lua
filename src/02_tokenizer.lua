@@ -31,6 +31,7 @@ local SYMBOLS = {
 	["="] = "ASSIGNMENT_TOKEN",
 	[">"] = "GREATER_TOKEN",
 	["<"] = "LESS_TOKEN",
+	["."] = "DOT_TOKEN",
 }
 
 local DOUBLE_SYMBOLS = {
@@ -127,6 +128,7 @@ local TOKEN_TYPE_STR = {
 	WORD_TOKEN = "word",
 	NUMBER_TOKEN = "number",
 	COMMENT_TOKEN = "comment",
+	DOT_TOKEN = "'.'",
 }
 
 local function token_type_str(token_type)
