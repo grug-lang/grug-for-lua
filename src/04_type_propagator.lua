@@ -6,7 +6,7 @@ local function Variable(name, t, tname)
 	return { name = name, type = t, type_name = tname }
 end
 
-local function Argument(name, t, tname, resource_extension, entity_type)
+local function Parameter(name, t, tname, resource_extension, entity_type)
 	return {
 		name = name,
 		type = t,
@@ -16,10 +16,10 @@ local function Argument(name, t, tname, resource_extension, entity_type)
 	}
 end
 
-local function GameFn(fn_name, arguments, return_type, return_type_name)
+local function GameFn(fn_name, parameters, return_type, return_type_name)
 	return {
 		fn_name = fn_name,
-		arguments = arguments or {},
+		parameters = parameters,
 		return_type = return_type,
 		return_type_name = return_type_name,
 	}
@@ -29,16 +29,21 @@ end
 -- Helpers
 -- --------------------------------------------------------------------------
 
-local function parse_args(lst)
-	local args = {}
+local function parse_parameters(lst)
+	local params = {}
 	for _, obj in ipairs(lst or {}) do
-		push(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
+		push(params, Parameter(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
 	end
-	return args
+	return params
 end
 
 local function parse_host_fn(fn_name, fn)
-	return GameFn(fn_name, parse_args(fn.arguments), fn.return_type and get_type(fn.return_type) or nil, fn.return_type)
+	return GameFn(
+		fn_name,
+		parse_parameters(fn.parameters),
+		fn.return_type and get_type(fn.return_type) or nil,
+		fn.return_type
+	)
 end
 
 -- --------------------------------------------------------------------------
@@ -76,10 +81,8 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods
 		end
 	end
 
-	if mod_api.host_functions then
-		for fn_name, fn in pairs(mod_api.host_functions) do
-			self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
-		end
+	for fn_name, fn in pairs(mod_api.host_functions) do
+		self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
 	end
 
 	local entity_cfg = mod_api.entities and mod_api.entities[entity_type]
@@ -140,10 +143,10 @@ function TypePropagator:add_local_variable(name, var_type, type_name, span)
 	self.local_variables[name] = Variable(name, var_type, type_name)
 end
 
-function TypePropagator:add_argument_variables(arguments)
+function TypePropagator:add_parameter_variables(parameters)
 	self.local_variables = {}
-	for _, arg in ipairs(arguments) do
-		self:add_local_variable(arg.name, arg.type, arg.type_name, arg.span)
+	for _, param in ipairs(parameters) do
+		self:add_local_variable(param.name, param.type, param.type_name, param.span)
 	end
 end
 
@@ -392,7 +395,7 @@ function TypePropagator:fill_call_expr(expr)
 
 	if target_fn then
 		expr.result = { type = target_fn.return_type, type_name = target_fn.return_type_name }
-		self:check_arguments(target_fn.arguments, expr)
+		self:check_arguments(target_fn.parameters, expr)
 
 		if self.host_functions[fn_name] then
 			if self.current_fn then
@@ -841,18 +844,18 @@ function TypePropagator:fill_export_fns()
 			self.current_fn = fn
 			fn.needs_clock = false
 			fn.used_host_fns = {}
-			local params = expected_fn.arguments or {}
+			local params = expected_fn.parameters or {}
 
-			if #fn.arguments ~= #params then
-				if #fn.arguments < #params then
+			if #fn.parameters ~= #params then
+				if #fn.parameters < #params then
 					error(
 						self:new_error(
 							"Function '"
 								.. name
 								.. "' expected the parameter '"
-								.. params[#fn.arguments + 1].name
+								.. params[#fn.parameters + 1].name
 								.. "' with type "
-								.. params[#fn.arguments + 1].type,
+								.. params[#fn.parameters + 1].type,
 							fn.span
 						)
 					)
@@ -862,32 +865,32 @@ function TypePropagator:fill_export_fns()
 							"Function '"
 								.. name
 								.. "' got an unexpected extra parameter '"
-								.. fn.arguments[#params + 1].name
+								.. fn.parameters[#params + 1].name
 								.. "' with type "
-								.. fn.arguments[#params + 1].type_name,
-							fn.arguments[#params + 1].span
+								.. fn.parameters[#params + 1].type_name,
+							fn.parameters[#params + 1].span
 						)
 					)
 				end
 			end
 
-			for i, arg in ipairs(fn.arguments) do
+			for i, param in ipairs(fn.parameters) do
 				local p = params[i]
-				if arg.name ~= p.name then
+				if param.name ~= p.name then
 					error(
 						self:new_error(
 							"Function '"
 								.. name
 								.. "' its '"
-								.. arg.name
+								.. param.name
 								.. "' parameter was supposed to be named '"
 								.. p.name
 								.. "'",
-							arg.span
+							param.span
 						)
 					)
 				end
-				if arg.type_name ~= p.type then
+				if param.type_name ~= p.type then
 					error(
 						self:new_error(
 							"Function '"
@@ -897,14 +900,14 @@ function TypePropagator:fill_export_fns()
 								.. "' parameter was supposed to have the type "
 								.. p.type
 								.. ", but got "
-								.. arg.type_name,
-							arg.type_span
+								.. param.type_name,
+							param.type_span
 						)
 					)
 				end
 			end
 
-			self:add_argument_variables(fn.arguments)
+			self:add_parameter_variables(fn.parameters)
 			self:fill_statements(fn.body_statements)
 			self.current_fn = nil
 		end
@@ -917,7 +920,7 @@ function TypePropagator:fill_local_fns()
 		self.current_fn = fn
 		fn.needs_clock = false
 		fn.used_host_fns = {}
-		self:add_argument_variables(fn.arguments)
+		self:add_parameter_variables(fn.parameters)
 		self:fill_statements(fn.body_statements)
 
 		if fn.return_type then

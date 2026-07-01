@@ -845,7 +845,7 @@ local Nodes = {
 	Comment = function(s)
 		return { stmt_type = "CommentStatement", string = s }
 	end,
-	Argument = function(name, t, tname, name_span, type_span)
+	Parameter = function(name, t, tname, name_span, type_span)
 		return { name = name, type = t, type_name = tname, span = name_span, type_span = type_span }
 	end,
 	OnFn = function(name, token)
@@ -853,7 +853,7 @@ local Nodes = {
 		return {
 			stmt_type = "OnFn",
 			fn_name = name,
-			arguments = {},
+			parameters = {},
 			body_statements = {},
 			span = { line = token.line, pos = token.pos },
 		}
@@ -862,7 +862,7 @@ local Nodes = {
 		return {
 			stmt_type = "HelperFn",
 			fn_name = name,
-			arguments = {},
+			parameters = {},
 			body_statements = {},
 			span = { line = token.line, pos = token.pos },
 		}
@@ -1127,8 +1127,8 @@ function Parser:parse()
 	return self.ast
 end
 
-function Parser:parse_arguments()
-	local args = {}
+function Parser:parse_parameters()
+	local params = {}
 	repeat
 		local name_token = self:consume()
 		local name = name_token.value
@@ -1146,8 +1146,8 @@ function Parser:parse_arguments()
 			error(self:new_error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type", t_token))
 		end
 		push(
-			args,
-			Nodes.Argument(
+			params,
+			Nodes.Parameter(
 				name,
 				arg_type,
 				type_name,
@@ -1164,7 +1164,7 @@ function Parser:parse_arguments()
 			break
 		end
 	until false
-	return args
+	return params
 end
 
 function Parser:parse_local_fn()
@@ -1183,7 +1183,7 @@ function Parser:parse_local_fn()
 	local fn = Nodes.HelperFn(name, name_token)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
-		fn.arguments = self:parse_arguments()
+		fn.parameters = self:parse_parameters()
 	end
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 
@@ -1219,7 +1219,7 @@ function Parser:parse_export_fn()
 	local fn = Nodes.OnFn(name, name_token)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
-		fn.arguments = self:parse_arguments()
+		fn.parameters = self:parse_parameters()
 	end
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 	fn.body_statements = self:parse_statements()
@@ -1644,7 +1644,7 @@ local function Variable(name, t, tname)
 	return { name = name, type = t, type_name = tname }
 end
 
-local function Argument(name, t, tname, resource_extension, entity_type)
+local function Parameter(name, t, tname, resource_extension, entity_type)
 	return {
 		name = name,
 		type = t,
@@ -1654,10 +1654,10 @@ local function Argument(name, t, tname, resource_extension, entity_type)
 	}
 end
 
-local function GameFn(fn_name, arguments, return_type, return_type_name)
+local function GameFn(fn_name, parameters, return_type, return_type_name)
 	return {
 		fn_name = fn_name,
-		arguments = arguments or {},
+		parameters = parameters,
 		return_type = return_type,
 		return_type_name = return_type_name,
 	}
@@ -1667,16 +1667,21 @@ end
 -- Helpers
 -- --------------------------------------------------------------------------
 
-local function parse_args(lst)
-	local args = {}
+local function parse_parameters(lst)
+	local params = {}
 	for _, obj in ipairs(lst or {}) do
-		push(args, Argument(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
+		push(params, Parameter(obj.name, get_type(obj.type), obj.type, obj.resource_extension, obj.entity_type))
 	end
-	return args
+	return params
 end
 
 local function parse_host_fn(fn_name, fn)
-	return GameFn(fn_name, parse_args(fn.arguments), fn.return_type and get_type(fn.return_type) or nil, fn.return_type)
+	return GameFn(
+		fn_name,
+		parse_parameters(fn.parameters),
+		fn.return_type and get_type(fn.return_type) or nil,
+		fn.return_type
+	)
 end
 
 -- --------------------------------------------------------------------------
@@ -1714,10 +1719,8 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods
 		end
 	end
 
-	if mod_api.host_functions then
-		for fn_name, fn in pairs(mod_api.host_functions) do
-			self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
-		end
+	for fn_name, fn in pairs(mod_api.host_functions) do
+		self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
 	end
 
 	local entity_cfg = mod_api.entities and mod_api.entities[entity_type]
@@ -1778,10 +1781,10 @@ function TypePropagator:add_local_variable(name, var_type, type_name, span)
 	self.local_variables[name] = Variable(name, var_type, type_name)
 end
 
-function TypePropagator:add_argument_variables(arguments)
+function TypePropagator:add_parameter_variables(parameters)
 	self.local_variables = {}
-	for _, arg in ipairs(arguments) do
-		self:add_local_variable(arg.name, arg.type, arg.type_name, arg.span)
+	for _, param in ipairs(parameters) do
+		self:add_local_variable(param.name, param.type, param.type_name, param.span)
 	end
 end
 
@@ -2030,7 +2033,7 @@ function TypePropagator:fill_call_expr(expr)
 
 	if target_fn then
 		expr.result = { type = target_fn.return_type, type_name = target_fn.return_type_name }
-		self:check_arguments(target_fn.arguments, expr)
+		self:check_arguments(target_fn.parameters, expr)
 
 		if self.host_functions[fn_name] then
 			if self.current_fn then
@@ -2479,18 +2482,18 @@ function TypePropagator:fill_export_fns()
 			self.current_fn = fn
 			fn.needs_clock = false
 			fn.used_host_fns = {}
-			local params = expected_fn.arguments or {}
+			local params = expected_fn.parameters or {}
 
-			if #fn.arguments ~= #params then
-				if #fn.arguments < #params then
+			if #fn.parameters ~= #params then
+				if #fn.parameters < #params then
 					error(
 						self:new_error(
 							"Function '"
 								.. name
 								.. "' expected the parameter '"
-								.. params[#fn.arguments + 1].name
+								.. params[#fn.parameters + 1].name
 								.. "' with type "
-								.. params[#fn.arguments + 1].type,
+								.. params[#fn.parameters + 1].type,
 							fn.span
 						)
 					)
@@ -2500,32 +2503,32 @@ function TypePropagator:fill_export_fns()
 							"Function '"
 								.. name
 								.. "' got an unexpected extra parameter '"
-								.. fn.arguments[#params + 1].name
+								.. fn.parameters[#params + 1].name
 								.. "' with type "
-								.. fn.arguments[#params + 1].type_name,
-							fn.arguments[#params + 1].span
+								.. fn.parameters[#params + 1].type_name,
+							fn.parameters[#params + 1].span
 						)
 					)
 				end
 			end
 
-			for i, arg in ipairs(fn.arguments) do
+			for i, param in ipairs(fn.parameters) do
 				local p = params[i]
-				if arg.name ~= p.name then
+				if param.name ~= p.name then
 					error(
 						self:new_error(
 							"Function '"
 								.. name
 								.. "' its '"
-								.. arg.name
+								.. param.name
 								.. "' parameter was supposed to be named '"
 								.. p.name
 								.. "'",
-							arg.span
+							param.span
 						)
 					)
 				end
-				if arg.type_name ~= p.type then
+				if param.type_name ~= p.type then
 					error(
 						self:new_error(
 							"Function '"
@@ -2535,14 +2538,14 @@ function TypePropagator:fill_export_fns()
 								.. "' parameter was supposed to have the type "
 								.. p.type
 								.. ", but got "
-								.. arg.type_name,
-							arg.type_span
+								.. param.type_name,
+							param.type_span
 						)
 					)
 				end
 			end
 
-			self:add_argument_variables(fn.arguments)
+			self:add_parameter_variables(fn.parameters)
 			self:fill_statements(fn.body_statements)
 			self.current_fn = nil
 		end
@@ -2555,7 +2558,7 @@ function TypePropagator:fill_local_fns()
 		self.current_fn = fn
 		fn.needs_clock = false
 		fn.used_host_fns = {}
-		self:add_argument_variables(fn.arguments)
+		self:add_parameter_variables(fn.parameters)
 		self:fill_statements(fn.body_statements)
 
 		if fn.return_type then
@@ -2691,9 +2694,9 @@ end
 -- ======================
 -- Global Serialization
 -- ======================
-local function serialize_arguments(arguments)
-	return map_list(arguments, function(arg)
-		return { name = arg.name, type = arg.type_name }
+local function serialize_parameters(parameters)
+	return map_list(parameters, function(param)
+		return { name = param.name, type = param.type_name }
 	end)
 end
 
@@ -2704,7 +2707,7 @@ local function serialize_global_statement(stmt)
 	if t == "OnFn" or t == "HelperFn" then
 		result.type = (t == "OnFn") and "GLOBAL_ON_FN" or "GLOBAL_HELPER_FN"
 		result.name = stmt.fn_name
-		result.arguments = serialize_arguments(stmt.arguments)
+		result.parameters = serialize_parameters(stmt.parameters)
 
 		if t == "HelperFn" and stmt.return_type then
 			result.return_type = stmt.return_type_name
@@ -2885,8 +2888,8 @@ apply_statements = function(statements, indentation, output)
 	indentation[1] = indentation[1] - 1
 end
 
-local function apply_args(args, output)
-	for i, a in ipairs(args or {}) do
+local function apply_params(params, output)
+	for i, a in ipairs(params) do
 		if i > 1 then
 			write(", ", output)
 		end
@@ -2912,7 +2915,7 @@ local function ast_to_grug(ast)
 			end
 
 			write(stmt.name .. "(", output)
-			apply_args(stmt.arguments, output)
+			apply_params(stmt.parameters or {}, output)
 			write(")", output)
 
 			if t == "GLOBAL_HELPER_FN" and stmt.return_type then
@@ -3215,8 +3218,8 @@ end
 
 function Transpiler:emit_fn(fn_name, fn)
 	local params = {}
-	for _, arg in ipairs(fn.arguments) do
-		params[#params + 1] = arg.name
+	for _, param in ipairs(fn.parameters) do
+		params[#params + 1] = param.name
 	end
 
 	self:w("function fns." .. fn_name .. "(" .. table.concat(params, ", ") .. ")\n")
@@ -3976,7 +3979,7 @@ function grug:json_to_grug(input_json_text) -- luacheck: ignore
 	return ast_to_grug(ast)
 end
 
-function grug:register(name, fn)
+function grug:register_fn(name, fn)
 	self.host_fns[name] = fn
 end
 

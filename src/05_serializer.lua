@@ -105,9 +105,9 @@ end
 -- ======================
 -- Global Serialization
 -- ======================
-local function serialize_arguments(arguments)
-	return map_list(arguments, function(arg)
-		return { name = arg.name, type = arg.type_name }
+local function serialize_parameters(parameters)
+	return map_list(parameters, function(param)
+		return { name = param.name, type = param.type_name }
 	end)
 end
 
@@ -118,7 +118,7 @@ local function serialize_global_statement(stmt)
 	if t == "OnFn" or t == "HelperFn" then
 		result.type = (t == "OnFn") and "GLOBAL_ON_FN" or "GLOBAL_HELPER_FN"
 		result.name = stmt.fn_name
-		result.arguments = serialize_arguments(stmt.arguments)
+		result.parameters = serialize_parameters(stmt.parameters)
 
 		if t == "HelperFn" and stmt.return_type then
 			result.return_type = stmt.return_type_name
@@ -299,8 +299,8 @@ apply_statements = function(statements, indentation, output)
 	indentation[1] = indentation[1] - 1
 end
 
-local function apply_args(args, output)
-	for i, a in ipairs(args or {}) do
+local function apply_params(params, output)
+	for i, a in ipairs(params) do
 		if i > 1 then
 			write(", ", output)
 		end
@@ -326,7 +326,7 @@ local function ast_to_grug(ast)
 			end
 
 			write(stmt.name .. "(", output)
-			apply_args(stmt.arguments, output)
+			apply_params(stmt.parameters or {}, output)
 			write(")", output)
 
 			if t == "GLOBAL_HELPER_FN" and stmt.return_type then

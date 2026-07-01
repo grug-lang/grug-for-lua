@@ -39,7 +39,7 @@ end
 
 local function register_fns(state, fns)
 	for fn_name, fn in pairs(fns) do
-		state:register(fn_name, fn)
+		state:register_fn(fn_name, fn)
 	end
 end
 

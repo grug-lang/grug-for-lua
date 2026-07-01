@@ -138,33 +138,33 @@ function _InterpreterEntity:_run_export_fn(export_fn_name, ...)
 	local old_executed_entity = self.state._executed_entity
 	self.state._executed_entity = self
 
-	local args = { ... }
+	local params = { ... }
 	local parent_local_variables = self.local_variables
 	self.local_variables = {}
 
-	-- Assign and verify argument types
-	for i, argument in ipairs(export_fn.arguments) do
-		local arg = args[i]
+	-- Assign and verify parameter types
+	for i, parameter in ipairs(export_fn.parameters) do
+		local param = params[i]
 
 		if self.state.safe_mode then
-			local expected = _get_expected_type(argument.type_name)
-			if type(arg) ~= expected then
+			local expected = _get_expected_type(parameter.type_name)
+			if type(param) ~= expected then
 				self.local_variables = parent_local_variables
 				self._flow = {
 					type = "ERROR",
 					err = string.format(
 						"Argument '%s' of %s() must be %s, got %s",
-						argument.name,
+						parameter.name,
 						export_fn_name,
-						argument.type_name,
-						type(arg)
+						parameter.type_name,
+						type(param)
 					),
 				}
 				return
 			end
 		end
 
-		self.local_variables[argument.name] = arg
+		self.local_variables[parameter.name] = param
 	end
 
 	local old_fn_depth = self.state.fn_depth
@@ -436,8 +436,8 @@ function _InterpreterEntity:_run_local_fn(name, args)
 	local parent_local_variables = self.local_variables
 	self.local_variables = {}
 
-	for i, argument in ipairs(local_fn.arguments) do
-		self.local_variables[argument.name] = args[i]
+	for i, parameter in ipairs(local_fn.parameters) do
+		self.local_variables[parameter.name] = args[i]
 	end
 
 	local old_fn_depth

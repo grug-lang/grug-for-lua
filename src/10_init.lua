@@ -368,7 +368,7 @@ function grug:json_to_grug(input_json_text) -- luacheck: ignore
 	return ast_to_grug(ast)
 end
 
-function grug:register(name, fn)
+function grug:register_fn(name, fn)
 	self.host_fns[name] = fn
 end
 
