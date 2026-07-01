@@ -424,6 +424,7 @@ local SYMBOLS = {
 	["="] = "ASSIGNMENT_TOKEN",
 	[">"] = "GREATER_TOKEN",
 	["<"] = "LESS_TOKEN",
+	["."] = "DOT_TOKEN",
 }
 
 local DOUBLE_SYMBOLS = {
@@ -520,6 +521,7 @@ local TOKEN_TYPE_STR = {
 	WORD_TOKEN = "word",
 	NUMBER_TOKEN = "number",
 	COMMENT_TOKEN = "comment",
+	DOT_TOKEN = "'.'",
 }
 
 local function token_type_str(token_type)
@@ -804,8 +806,8 @@ local Nodes = {
 	Logical = function(l, op, r)
 		return { left_expr = l, operator = op, right_expr = r }
 	end,
-	Call = function(name, span)
-		return { fn_name = name, arguments = {}, span = span }
+	Call = function(name, span, receiver)
+		return { fn_name = name, arguments = {}, span = span, receiver = receiver }
 	end,
 	Parenthesized = function(expr)
 		return { expr = expr }
@@ -1280,8 +1282,8 @@ function Parser:parse_statement()
 	local tok = self:peek()
 	if tok.type == "WORD_TOKEN" then
 		local next_t = self:peek(1)
-		if next_t.type == "OPEN_PARENTHESIS_TOKEN" then
-			res = Nodes.CallStmt(self:parse_call())
+		if next_t.type == "OPEN_PARENTHESIS_TOKEN" or next_t.type == "DOT_TOKEN" then
+			res = Nodes.CallStmt(self:try_parse_method(self:parse_call()))
 		elseif next_t.type == "COLON_TOKEN" or next_t.type == "SPACE_TOKEN" then
 			res = self:parse_local_variable()
 		else
@@ -1561,6 +1563,46 @@ function Parser:parse_call()
 	return res
 end
 
+-- If a "." follows `expr`, parses a chain of method calls (`expr.method(args)`).
+-- Chained calls are still parsed here (`a.b().c()`) so that the type propagator
+-- can reject method chaining with a proper error, rather than the parser
+-- silently stopping partway through.
+function Parser:try_parse_method(expr)
+	while self:peek().type == "DOT_TOKEN" do
+		self.idx = self.idx + 1 -- consume '.'
+		local receiver = expr
+
+		self:assert_type("WORD_TOKEN") -- method name must be a word
+		local name_t = self:peek()
+		self.idx = self.idx + 1 -- consume the method name
+
+		if self:peek().type ~= "OPEN_PARENTHESIS_TOKEN" then
+			error(self:new_error("Method call expected '('", self:peek()))
+		end
+		self.idx = self.idx + 1 -- consume '('
+
+		local call = Nodes.Call(name_t.value, receiver.span, receiver)
+
+		if self:peek().type == "CLOSE_PARENTHESIS_TOKEN" then
+			self.idx = self.idx + 1
+		else
+			repeat
+				push(call.arguments, self:parse_expression())
+				if self:peek().type == "COMMA_TOKEN" then
+					self.idx = self.idx + 1
+					self:consume_space()
+				else
+					self:consume_type("CLOSE_PARENTHESIS_TOKEN")
+					break
+				end
+			until false
+		end
+
+		expr = call
+	end
+	return expr
+end
+
 function Parser:parse_unary()
 	self:enter_scope()
 
@@ -1577,7 +1619,7 @@ function Parser:parse_unary()
 			pos = t.pos,
 		}
 	else
-		res = self:parse_call()
+		res = self:try_parse_method(self:parse_call())
 	end
 
 	self:exit_scope()
@@ -1708,6 +1750,7 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods
 		local_variables = {},
 		global_variables = {},
 		host_functions = {},
+		classes = {},
 		entity_export_functions = {},
 	}, TypePropagator)
 
@@ -1721,6 +1764,14 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods
 
 	for fn_name, fn in pairs(mod_api.host_functions) do
 		self.host_functions[fn_name] = parse_host_fn(fn_name, fn)
+	end
+
+	for class_name, class_def in pairs(mod_api.classes or {}) do
+		local methods = {}
+		for method_name, method_def in pairs(class_def.methods or {}) do
+			methods[method_name] = parse_host_fn(method_name, method_def)
+		end
+		self.classes[class_name] = methods
 	end
 
 	local entity_cfg = mod_api.entities and mod_api.entities[entity_type]
@@ -2059,6 +2110,59 @@ function TypePropagator:fill_call_expr(expr)
 	error(self:new_error("The game function '" .. fn_name .. "' was not declared by mod_api.json", expr.span))
 end
 
+function TypePropagator:fill_method_expr(expr)
+	local receiver = expr.receiver
+
+	-- Method chaining is not allowed, e.g. `a.b().c()` or `foo().c()`.
+	if receiver.fn_name then
+		if not receiver.receiver then
+			error(self:new_error("Cannot call method on the result of a function call", expr.span))
+		else
+			error(self:new_error("Method chaining is not allowed", expr.span))
+		end
+	end
+
+	self:fill_expr(receiver)
+
+	local receiver_type_name
+	if receiver.result.type == "ID" then
+		receiver_type_name = receiver.result.type_name
+	else
+		error(self:new_error("Cannot call method on '" .. tostring(receiver.result.type_name) .. "' type", expr.span))
+	end
+
+	for _, arg in ipairs(expr.arguments) do
+		self:fill_expr(arg)
+	end
+
+	local available_methods = self.classes[receiver_type_name]
+	if not available_methods then
+		error(self:new_error("Type '" .. receiver_type_name .. "' does not have any methods", expr.span))
+	end
+
+	local method = available_methods[expr.fn_name]
+	if not method then
+		error(
+			self:new_error(
+				"Cannot find method '" .. expr.fn_name .. "' on type '" .. receiver_type_name .. "'",
+				expr.span
+			)
+		)
+	end
+
+	self:check_arguments(method.parameters, expr)
+	expr.result = { type = method.return_type, type_name = method.return_type_name }
+
+	-- Track which class methods are actually used, the same way host functions
+	-- are tracked, so the transpiler only emits upvalues it needs.
+	local mangled = receiver_type_name .. "__" .. expr.fn_name
+	if self.current_fn then
+		self.current_fn.used_host_fns[mangled] = true
+	elseif self.current_global then
+		self.current_global.used_host_fns[mangled] = true
+	end
+end
+
 local OPERATOR_STR = {
 	GREATER_OR_EQUAL_TOKEN = ">=",
 	GREATER_TOKEN = ">",
@@ -2204,7 +2308,11 @@ function TypePropagator:fill_expr(expr)
 	elseif expr.operator and expr.left_expr then
 		self:fill_binary_expr(expr)
 	elseif expr.fn_name then
-		self:fill_call_expr(expr)
+		if expr.receiver then
+			self:fill_method_expr(expr)
+		else
+			self:fill_call_expr(expr)
+		end
 	elseif expr.expr and not expr.operator then
 		self:fill_expr(expr.expr)
 		expr.result.type, expr.result.type_name = expr.expr.result.type, expr.expr.result.type_name
@@ -2268,7 +2376,11 @@ function TypePropagator:fill_statements(statements)
 				end
 			end
 		elseif stype == "CallStatement" then
-			self:fill_call_expr(stmt.expr)
+			if stmt.expr.receiver then
+				self:fill_method_expr(stmt.expr)
+			else
+				self:fill_call_expr(stmt.expr)
+			end
 		elseif stype == "IfStatement" then
 			self:fill_expr(stmt.condition)
 			if stmt.condition.result.type ~= "BOOL" then
@@ -2636,6 +2748,9 @@ local function serialize_expr(expr)
 	elseif expr.fn_name ~= nil then
 		result.type = "CALL_EXPR"
 		result.name = expr.fn_name
+		if expr.receiver then
+			result.receiver = serialize_expr(expr.receiver)
+		end
 		result.arguments = map_list(expr.arguments, serialize_expr)
 	elseif expr.expr ~= nil then
 		result.type = "PARENTHESIZED_EXPR"
@@ -2662,6 +2777,9 @@ local function serialize_statement(stmt)
 	elseif t == "CallStatement" then
 		result.type = "CALL_STATEMENT"
 		result.name = stmt.expr.fn_name
+		if stmt.expr.receiver then
+			result.receiver = serialize_expr(stmt.expr.receiver)
+		end
 		result.arguments = map_list(stmt.expr.arguments, serialize_expr)
 	elseif t == "IfStatement" then
 		result.type = "IF_STATEMENT"
@@ -2788,6 +2906,10 @@ local function apply_expr(expr, output)
 		write(expr.operator == "AND_TOKEN" and " and " or " or ", output)
 		apply_expr(expr.right_expr, output)
 	elseif t == "CALL_EXPR" then
+		if expr.receiver then
+			apply_expr(expr.receiver, output)
+			write(".", output)
+		end
 		write(expr.name .. "(", output)
 		for i, arg in ipairs(expr.arguments or {}) do
 			if i > 1 then
@@ -2842,6 +2964,10 @@ local function apply_statement(stmt, indentation, output)
 		apply_expr(stmt.assignment, output)
 		write("\n", output)
 	elseif t == "CALL_STATEMENT" then
+		if stmt.receiver then
+			apply_expr(stmt.receiver, output)
+			write(".", output)
+		end
 		write(stmt.name .. "(", output)
 		for i, arg in ipairs(stmt.arguments or {}) do
 			if i > 1 then
@@ -3105,6 +3231,19 @@ function Transpiler:emit_call_expr(expr)
 	local arg_strs = {}
 	for _, arg in ipairs(expr.arguments) do
 		arg_strs[#arg_strs + 1] = self:emit_expr(arg)
+	end
+
+	if expr.receiver then
+		-- Method call: dispatch to the class method registered under its
+		-- mangled "ClassName__methodName" upvalue name. The receiver's static
+		-- type name is known at this point, since the type propagator already
+		-- ran and filled expr.receiver.result.
+		local mangled = expr.receiver.result.type_name .. "__" .. fn_name
+		local new_args = { "e.state", self:emit_expr(expr.receiver) }
+		for i = 1, #arg_strs do
+			new_args[#new_args + 1] = arg_strs[i]
+		end
+		return mangled .. "(" .. table.concat(new_args, ", ") .. ")"
 	end
 
 	if fn_name:sub(1, 1) == "_" then
@@ -3954,6 +4093,11 @@ function grug:_compile_grug_file(grug_file_relative_path)
 	for name, decl in pairs(self.mod_api.host_functions) do
 		host_fn_return_types[name] = decl.return_type
 	end
+	for class_name, class_def in pairs(self.mod_api.classes or {}) do
+		for method_name, method_def in pairs(class_def.methods or {}) do
+			host_fn_return_types[class_name .. "__" .. method_name] = method_def.return_type
+		end
+	end
 
 	return GrugFile.new(
 		grug_file_relative_path,
@@ -3981,6 +4125,14 @@ end
 
 function grug:register_fn(name, fn)
 	self.host_fns[name] = fn
+end
+
+-- Registers a method `fn` for `method_name` on class `class_name` (as declared
+-- under mod_api.classes[class_name].methods). Internally this is stored in the
+-- same table as register_fn(), under a mangled "ClassName__methodName" key, so
+-- it's picked up automatically wherever host functions are injected.
+function grug:register_method(class_name, method_name, fn)
+	self.host_fns[class_name .. "__" .. method_name] = fn
 end
 
 local function assert_mod_api(mod_api)
@@ -4013,6 +4165,44 @@ local function assert_mod_api(mod_api)
 					tostring(export_functions)
 				)
 			)
+		end
+	end
+
+	local classes = mod_api.classes
+	if classes ~= nil then
+		if type(classes) ~= "table" then
+			error(
+				string.format(
+					"Error: 'classes' must be a JSON object, but got %s: %s",
+					type(classes),
+					tostring(classes)
+				)
+			)
+		end
+
+		for class_name, class_def in pairs(classes) do
+			if type(class_def) ~= "table" then
+				error(
+					string.format(
+						"Error: class '%s' must be a JSON object, but got %s: %s",
+						class_name,
+						type(class_def),
+						tostring(class_def)
+					)
+				)
+			end
+
+			local methods = class_def.methods
+			if methods ~= nil and type(methods) ~= "table" then
+				error(
+					string.format(
+						"Error: 'methods' for class '%s' must be a JSON object, but got %s: %s",
+						class_name,
+						type(methods),
+						tostring(methods)
+					)
+				)
+			end
 		end
 	end
 

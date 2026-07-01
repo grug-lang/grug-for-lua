@@ -47,6 +47,9 @@ local function serialize_expr(expr)
 	elseif expr.fn_name ~= nil then
 		result.type = "CALL_EXPR"
 		result.name = expr.fn_name
+		if expr.receiver then
+			result.receiver = serialize_expr(expr.receiver)
+		end
 		result.arguments = map_list(expr.arguments, serialize_expr)
 	elseif expr.expr ~= nil then
 		result.type = "PARENTHESIZED_EXPR"
@@ -73,6 +76,9 @@ local function serialize_statement(stmt)
 	elseif t == "CallStatement" then
 		result.type = "CALL_STATEMENT"
 		result.name = stmt.expr.fn_name
+		if stmt.expr.receiver then
+			result.receiver = serialize_expr(stmt.expr.receiver)
+		end
 		result.arguments = map_list(stmt.expr.arguments, serialize_expr)
 	elseif t == "IfStatement" then
 		result.type = "IF_STATEMENT"
@@ -199,6 +205,10 @@ local function apply_expr(expr, output)
 		write(expr.operator == "AND_TOKEN" and " and " or " or ", output)
 		apply_expr(expr.right_expr, output)
 	elseif t == "CALL_EXPR" then
+		if expr.receiver then
+			apply_expr(expr.receiver, output)
+			write(".", output)
+		end
 		write(expr.name .. "(", output)
 		for i, arg in ipairs(expr.arguments or {}) do
 			if i > 1 then
@@ -253,6 +263,10 @@ local function apply_statement(stmt, indentation, output)
 		apply_expr(stmt.assignment, output)
 		write("\n", output)
 	elseif t == "CALL_STATEMENT" then
+		if stmt.receiver then
+			apply_expr(stmt.receiver, output)
+			write(".", output)
+		end
 		write(stmt.name .. "(", output)
 		for i, arg in ipairs(stmt.arguments or {}) do
 			if i > 1 then

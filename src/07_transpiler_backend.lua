@@ -127,6 +127,19 @@ function Transpiler:emit_call_expr(expr)
 		arg_strs[#arg_strs + 1] = self:emit_expr(arg)
 	end
 
+	if expr.receiver then
+		-- Method call: dispatch to the class method registered under its
+		-- mangled "ClassName__methodName" upvalue name. The receiver's static
+		-- type name is known at this point, since the type propagator already
+		-- ran and filled expr.receiver.result.
+		local mangled = expr.receiver.result.type_name .. "__" .. fn_name
+		local new_args = { "e.state", self:emit_expr(expr.receiver) }
+		for i = 1, #arg_strs do
+			new_args[#new_args + 1] = arg_strs[i]
+		end
+		return mangled .. "(" .. table.concat(new_args, ", ") .. ")"
+	end
+
 	if fn_name:sub(1, 1) == "_" then
 		-- Helper functions live in the fns table.
 		return "fns." .. fn_name .. "(" .. table.concat(arg_strs, ", ") .. ")"
