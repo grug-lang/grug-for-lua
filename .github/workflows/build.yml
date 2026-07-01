@@ -89,7 +89,6 @@ jobs:
 
       - name: Clone and build grug-tests
         run: |
-          # TODO: Remove `--branch add-code-reloading-test`
           git clone https://github.com/grug-lang/grug-tests
           cd grug-tests
           cmake -S . -B build
