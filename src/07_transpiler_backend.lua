@@ -238,8 +238,8 @@ end
 
 function Transpiler:emit_fn(fn_name, fn)
 	local params = {}
-	for _, arg in ipairs(fn.arguments) do
-		params[#params + 1] = arg.name
+	for _, param in ipairs(fn.parameters) do
+		params[#params + 1] = param.name
 	end
 
 	self:w("function fns." .. fn_name .. "(" .. table.concat(params, ", ") .. ")\n")

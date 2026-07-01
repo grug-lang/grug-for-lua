@@ -4,7 +4,7 @@ local state = grug.init({
 	grug_files = { "animals/labrador-Dog.grug" },
 })
 
-state:register("print_string", function(state, string)
+state:register_fn("print_string", function(state, string)
 	print(string)
 end)
 

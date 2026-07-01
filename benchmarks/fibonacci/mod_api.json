@@ -21,7 +21,7 @@
         },
         "list_append": {
             "description": "Appends a number to a list.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "list",
                     "type": "List"
@@ -34,7 +34,7 @@
         },
         "dict_has_key": {
             "description": "Checks if a key exists.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "dict",
                     "type": "Dict"
@@ -48,7 +48,7 @@
         },
         "dict_get": {
             "description": "Gets a value from a dictionary.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "dict",
                     "type": "Dict"
@@ -62,7 +62,7 @@
         },
         "dict_set": {
             "description": "Sets a value in a dictionary.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "dict",
                     "type": "Dict"
@@ -79,7 +79,7 @@
         },
         "assert_fib": {
             "description": "Asserts that the list of Fibonacci numbers is correct.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "list",
                     "type": "List"

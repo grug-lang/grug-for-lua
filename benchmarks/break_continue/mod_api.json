@@ -13,7 +13,7 @@
     "host_functions": {
         "is_odd": {
             "description": "Returns true if the number is odd.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "n",
                     "type": "number"
@@ -23,7 +23,7 @@
         },
         "assert_equals": {
             "description": "Asserts that two numbers are equal.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "actual",
                     "type": "number"

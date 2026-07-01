@@ -75,7 +75,7 @@ local Nodes = {
 	Comment = function(s)
 		return { stmt_type = "CommentStatement", string = s }
 	end,
-	Argument = function(name, t, tname, name_span, type_span)
+	Parameter = function(name, t, tname, name_span, type_span)
 		return { name = name, type = t, type_name = tname, span = name_span, type_span = type_span }
 	end,
 	OnFn = function(name, token)
@@ -83,7 +83,7 @@ local Nodes = {
 		return {
 			stmt_type = "OnFn",
 			fn_name = name,
-			arguments = {},
+			parameters = {},
 			body_statements = {},
 			span = { line = token.line, pos = token.pos },
 		}
@@ -92,7 +92,7 @@ local Nodes = {
 		return {
 			stmt_type = "HelperFn",
 			fn_name = name,
-			arguments = {},
+			parameters = {},
 			body_statements = {},
 			span = { line = token.line, pos = token.pos },
 		}
@@ -357,8 +357,8 @@ function Parser:parse()
 	return self.ast
 end
 
-function Parser:parse_arguments()
-	local args = {}
+function Parser:parse_parameters()
+	local params = {}
 	repeat
 		local name_token = self:consume()
 		local name = name_token.value
@@ -376,8 +376,8 @@ function Parser:parse_arguments()
 			error(self:new_error("The argument '" .. name .. "' can't have '" .. type_name .. "' as its type", t_token))
 		end
 		push(
-			args,
-			Nodes.Argument(
+			params,
+			Nodes.Parameter(
 				name,
 				arg_type,
 				type_name,
@@ -394,7 +394,7 @@ function Parser:parse_arguments()
 			break
 		end
 	until false
-	return args
+	return params
 end
 
 function Parser:parse_local_fn()
@@ -413,7 +413,7 @@ function Parser:parse_local_fn()
 	local fn = Nodes.HelperFn(name, name_token)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
-		fn.arguments = self:parse_arguments()
+		fn.parameters = self:parse_parameters()
 	end
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 
@@ -449,7 +449,7 @@ function Parser:parse_export_fn()
 	local fn = Nodes.OnFn(name, name_token)
 	self:consume_type("OPEN_PARENTHESIS_TOKEN")
 	if self:peek().type == "WORD_TOKEN" then
-		fn.arguments = self:parse_arguments()
+		fn.parameters = self:parse_parameters()
 	end
 	self:consume_type("CLOSE_PARENTHESIS_TOKEN")
 	fn.body_statements = self:parse_statements()

@@ -21,7 +21,7 @@
         },
         "print_number": {
             "description": "Prints a number.",
-            "arguments": [
+            "parameters": [
                 {
                     "name": "nbr",
                     "type": "number"
