@@ -187,6 +187,21 @@ You can install it using the [LuaRocks](https://github.com/luarocks/luarocks) pa
 luarocks install luacheck
 ```
 
+### Measuring coverage
+
+Install [luacov](https://github.com/lunarmodules/luacov):
+```bash
+luarocks install luacov
+```
+
+TODO: Update tests.lua to run all examples, getting rid of run_examples.py
+
+```bash
+luajit -lluacov tests.lua
+luacov
+python -m http.server
+```
+
 ### Run manually
 
 ```bash
