@@ -136,7 +136,7 @@ python run_benchmarks.py \
   | tee luajit.log
 ```
 
-### Using luajit-remake
+## Using luajit-remake
 
 luajit-remake is a rewrite of LuaJIT that is on average way faster.
 
@@ -147,10 +147,27 @@ In order to use it:
 4. Run `python3 ljr-build make release`.
 5. Once built, it output a `luajitr` executable that you can add to your `PATH`.
 
-### Generating graphs for all results
+## Generating graphs for all results
 
 ```sh
 python visualize_benchmarks.py
+```
+
+## Measuring coverage
+
+Install [luacov](https://github.com/lunarmodules/luacov):
+```bash
+luarocks install luacov
+```
+
+TODO: Update tests.lua to run all examples, getting rid of run_examples.py
+
+```bash
+rm -f luacov.stats.out # Workaround for luacov appending, rather than overwriting
+luajit -lluacov tests.lua
+luacov # Outputs luacov.report.out
+luacov -c .luacov_html # Outputs luacov.report.html
+python -m http.server
 ```
 
 ## CI behavior
@@ -185,22 +202,6 @@ pre-commit install
 You can install it using the [LuaRocks](https://github.com/luarocks/luarocks) package manager:
 ```bash
 luarocks install luacheck
-```
-
-### Measuring coverage
-
-Install [luacov](https://github.com/lunarmodules/luacov):
-```bash
-luarocks install luacov
-```
-
-TODO: Update tests.lua to run all examples, getting rid of run_examples.py
-
-```bash
-luajit -lluacov tests.lua
-luacov # Outputs luacov.report.out
-luacov -c .luacov_html # Outputs luacov.report.html
-python -m http.server
 ```
 
 ### Run manually
