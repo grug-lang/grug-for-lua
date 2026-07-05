@@ -198,7 +198,8 @@ TODO: Update tests.lua to run all examples, getting rid of run_examples.py
 
 ```bash
 luajit -lluacov tests.lua
-luacov
+luacov # Outputs luacov.report.out
+luacov -c .luacov_html # Outputs luacov.report.html
 python -m http.server
 ```
 
