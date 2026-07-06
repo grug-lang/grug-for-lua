@@ -1,3 +1,15 @@
+local whitelisted_test = arg[1]
+if whitelisted_test == "" then
+	whitelisted_test = nil
+end
+
+local grug_tests_path = arg[2] or "../grug-tests"
+
+-- How long each example's while-loop should run for.
+local example_timeout_secs = tonumber(arg[3]) or 0.01
+
+local grug = require("grug")
+
 local ffi
 do
 	-- ffi for LuaJIT
@@ -16,18 +28,73 @@ do
 	end
 end
 
-local grug = require("grug")
-local interpreter_backend = require("alternative_backends/interpreter_backend")
+-- Needed so run_examples() can cd into each example's directory in-process,
+-- instead of shelling out to a subprocess (which luacov can't see into).
+ffi.cdef([[
+	char *getcwd(char *buf, size_t size);
+	int chdir(const char *path);
+]])
 
-local whitelisted_test = arg[1]
-if whitelisted_test == "" then
-	whitelisted_test = nil
+-- Replaces run_examples.py.
+--
+-- Every subdirectory of `examples_dir` is expected to contain an "example.lua".
+--
+-- Unlike the old Python version, these are run in-process via loadfile()+pcall()
+-- rather than as subprocesses, so that when this script is invoked as
+-- `luajit -lluacov tests.lua`, luacov's line hook also picks up coverage from
+-- the examples themselves. No timeout handling is needed since the examples
+-- always finish quickly.
+local function get_cwd()
+	local buf_size = 4096
+	local buf = ffi.new("char[?]", buf_size)
+	if ffi.C.getcwd(buf, buf_size) == nil then
+		error("getcwd() failed")
+	end
+	return ffi.string(buf)
 end
 
-local grug_tests_path = arg[2] or "../grug-tests"
+local function change_dir(path)
+	if ffi.C.chdir(path) ~= 0 then
+		error('chdir("' .. path .. '") failed')
+	end
+end
+
+local function is_absolute_path(path)
+	return path:sub(1, 1) == "/"
+end
+
+-- Resolving every path to an absolute one up front means chdir'ing into
+-- and out of example directories can never drift/compound: each example's
+-- path is computed once, from a fixed base, rather than being re-derived
+-- relative to whatever the "current" working directory happens to be.
+local function to_absolute_path(path, base)
+	if is_absolute_path(path) then
+		return path
+	end
+	return base .. "/" .. path
+end
 
 local function push(t, value)
 	t[#t + 1] = value
+end
+
+local function list_subdirs(dir)
+	local handle, err = io.popen('find "' .. dir .. '" -mindepth 1 -maxdepth 1 -type d -printf "%f\\n" 2>/dev/null')
+	if not handle then
+		error('Failed to list directory "' .. dir .. '": ' .. tostring(err))
+	end
+
+	local entries = {}
+	for line in handle:lines() do
+		if line ~= "" then
+			push(entries, line)
+		end
+	end
+	handle:close()
+
+	table.sort(entries)
+
+	return entries
 end
 
 local function dump_to_str(tbl, indent, seen)
@@ -65,6 +132,68 @@ end
 local function print_traceback(err)
 	print(debug.traceback(dump_to_str(err)) .. "\n")
 end
+
+-- Runs a single example directory (given as an absolute path), and guarantees
+-- the working directory gets restored afterwards, even if the example itself
+-- errors out. Without this guarantee, one broken example could leave the cwd
+-- in the wrong place and break every example that runs after it.
+local function run_example(example_dir_abs)
+	print("--- Running " .. example_dir_abs .. "/example.lua ---")
+
+	local original_cwd = get_cwd()
+
+	local ok_chdir, chdir_err = pcall(change_dir, example_dir_abs)
+	if not ok_chdir then
+		print_traceback(chdir_err)
+		return
+	end
+
+	-- Monkey-patch dofile so examples can load grug without breaking luacov
+	local old_dofile = _G.dofile
+	_G.dofile = function(path)
+		if path:match("grug%.lua$") then
+			return require("grug")
+		end
+		return old_dofile(path)
+	end
+
+	-- Use absolute path for loadfile so luacov records it correctly
+	local chunk, load_err = loadfile(example_dir_abs .. "/example.lua")
+	if not chunk then
+		print_traceback(load_err)
+	else
+		_G.arg = { example_timeout_secs }
+
+		local ok, err = pcall(chunk)
+		if not ok then
+			print_traceback(err)
+		end
+
+		_G.arg = nil
+	end
+
+	-- Restore original dofile
+	_G.dofile = old_dofile
+
+	local ok_restore, restore_err = pcall(change_dir, original_cwd)
+	if not ok_restore then
+		error('Failed to restore working directory to "' .. original_cwd .. '": ' .. tostring(restore_err))
+	end
+end
+
+local function run_examples()
+	local original_cwd = get_cwd()
+	local examples_dir_abs = to_absolute_path("examples", original_cwd)
+
+	for _, entry in ipairs(list_subdirs(examples_dir_abs)) do
+		run_example(examples_dir_abs .. "/" .. entry)
+	end
+end
+
+print("=== Running examples ===")
+run_examples()
+
+local interpreter_backend = require("alternative_backends/interpreter_backend")
 
 -- luacheck: push ignore
 ffi.cdef([[
