@@ -15,7 +15,7 @@ local dog1 = file:create_entity()
 local dog2 = file:create_entity()
 
 local start_time = os.clock()
-local timeout_secs = arg[1] or 420
+local timeout_secs = arg[2] or 420
 
 while os.clock() - start_time < timeout_secs do
 	state:update()

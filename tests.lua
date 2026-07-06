@@ -10,8 +10,6 @@ local grug_tests_path = arg[2] or "../grug-tests"
 -- How long each example's while-loop should run for.
 local example_timeout_secs = tonumber(arg[3]) or 0.01
 
-local grug = require("grug")
-
 local ffi
 do
 	-- ffi for LuaJIT
@@ -39,6 +37,32 @@ ffi.cdef([[
 	int chdir(const char *path);
 ]])
 
+-- Must be captured *before* anything ever chdir()s, and *before* the first
+-- require() of any project module. Lua's default "./?.lua" package.path
+-- entry is relative to the current working directory at require()-time, not
+-- to where the script lives. run_example() below chdir()s into each
+-- example's own directory before running it, and the example's dofile()
+-- shim (also below) turns into a require() the first time it's hit. If that
+-- first require() happens after a chdir, "./?.lua" no longer points at the
+-- project root and the require fails (this is what broke
+-- "alternative_backends.interpreter_backend": nothing had required it yet
+-- at that CWD-relative path). require("grug") is spared only because it's
+-- required here, up front, while the CWD is still correct.
+--
+-- Prepending an *absolute* path template fixes this for every future
+-- require(), regardless of what the CWD has been chdir()'d to since.
+local function get_cwd()
+	local buf_size = 4096
+	local buf = ffi.new("char[?]", buf_size)
+	assert(ffi.C.getcwd(buf, buf_size) ~= nil)
+	return ffi.string(buf)
+end
+
+local project_root_dir = get_cwd()
+package.path = project_root_dir .. "/?.lua;" .. project_root_dir .. "/?/init.lua;" .. package.path
+
+local grug = require("grug")
+
 -- Replaces run_examples.py.
 --
 -- Every subdirectory of `examples_dir` is expected to contain an "example.lua".
@@ -48,13 +72,6 @@ ffi.cdef([[
 -- `luajit -lluacov tests.lua`, luacov's line hook also picks up coverage from
 -- the examples themselves. No timeout handling is needed since the examples
 -- always finish quickly.
-local function get_cwd()
-	local buf_size = 4096
-	local buf = ffi.new("char[?]", buf_size)
-	assert(ffi.C.getcwd(buf, buf_size) ~= nil)
-	return ffi.string(buf)
-end
-
 local function change_dir(path)
 	assert(ffi.C.chdir(path) == 0)
 end
@@ -130,7 +147,7 @@ local function run_example(example_dir_abs)
 
 	local original_cwd = get_cwd()
 
-	assert(pcall(change_dir, example_dir_abs))
+	change_dir(example_dir_abs)
 
 	-- Monkey-patch dofile so examples can load grug without breaking luacov
 	local old_dofile = _G.dofile
@@ -139,27 +156,40 @@ local function run_example(example_dir_abs)
 			return require("grug")
 		end
 
+		if path:match("interpreter_backend%.lua$") then
+			return require("alternative_backends.interpreter_backend")
+		end
+
 		-- luacov: disable
 		return old_dofile(path)
 		-- luacov: enable
 	end
 
 	-- Use absolute path for loadfile so luacov records it correctly
-	local chunk = assert(loadfile(example_dir_abs .. "/example.lua"))
+	local example_path = example_dir_abs .. "/example.lua"
 
-	_G.arg = { example_timeout_secs }
+	for _, backend_flag in ipairs({ "--transpiler", "--interpreter" }) do
+		print("-- Backend: " .. backend_flag)
 
-	local ok, err = pcall(chunk)
-	if not ok then
-		print_traceback(err)
+		-- Re-loadfile() for each backend, since a chunk that has already
+		-- errored out partway through shouldn't be trusted to run again
+		-- cleanly, and reloading is cheap.
+		local chunk = assert(loadfile(example_path))
+
+		_G.arg = { backend_flag, example_timeout_secs }
+
+		local ok, err = pcall(chunk)
+		if not ok then
+			print_traceback(err)
+		end
+
+		_G.arg = nil
 	end
-
-	_G.arg = nil
 
 	-- Restore original dofile
 	_G.dofile = old_dofile
 
-	assert(pcall(change_dir, original_cwd))
+	change_dir(original_cwd)
 end
 
 local function run_examples()
