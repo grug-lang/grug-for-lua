@@ -156,17 +156,21 @@ python visualize_benchmarks.py
 ## Measuring coverage
 
 Install [luacov](https://github.com/lunarmodules/luacov):
-```bash
+```sh
 luarocks install luacov
 ```
 
-TODO: Update tests.lua to run all examples, getting rid of run_examples.py
-
-```bash
-rm -f luacov.stats.out # Workaround for luacov appending, rather than overwriting
-luajit -lluacov tests.lua
-luacov # Outputs luacov.report.out
+Collect and output coverage information:
+```sh
+rm -f luacov.stats.out && # Workaround for luacov appending, rather than overwriting
+luajit -lluacov tests.lua &&
+luacov && # Outputs luacov.report.out
+tail luacov.report.out &&
 luacov -c .luacov_html # Outputs luacov.report.html
+```
+
+Run this in a second terminal to view `luacov.report.html` in your browser at `http://127.0.0.1:8000/luacov.report.html`:
+```sh
 python -m http.server
 ```
 
@@ -192,7 +196,7 @@ If you modify Python or Lua source files, note that CI enforces:
 
 ### Install pre-commit
 
-```bash
+```sh
 pip install pre-commit
 pre-commit install
 ```
@@ -200,12 +204,12 @@ pre-commit install
 ### Install luacheck
 
 You can install it using the [LuaRocks](https://github.com/luarocks/luarocks) package manager:
-```bash
+```sh
 luarocks install luacheck
 ```
 
 ### Run manually
 
-```bash
+```sh
 pre-commit run --all-files
 ```

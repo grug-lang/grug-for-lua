@@ -14,7 +14,10 @@ local file = state.mods["animals"]["labrador-Dog.grug"]
 local dog1 = file:create_entity()
 local dog2 = file:create_entity()
 
-while true do
+local start_time = os.clock()
+local timeout_secs = arg[1] or 420
+
+while os.clock() - start_time < timeout_secs do
 	state:update()
 	dog1:bark("woof")
 	dog2:bark("arf")
