@@ -1,6 +1,8 @@
 local whitelisted_test = arg[1]
 if whitelisted_test == "" then
+	-- luacov: disable
 	whitelisted_test = nil
+	-- luacov: enable
 end
 
 local grug_tests_path = arg[2] or "../grug-tests"
@@ -14,6 +16,7 @@ local ffi
 do
 	-- ffi for LuaJIT
 	local ok, result = pcall(require, "ffi")
+	-- luacov: disable
 	if ok then
 		ffi = result
 	else
@@ -26,6 +29,7 @@ do
 			os.exit(1)
 		end
 	end
+	-- luacov: enable
 end
 
 -- Needed so run_examples() can cd into each example's directory in-process,
@@ -47,31 +51,12 @@ ffi.cdef([[
 local function get_cwd()
 	local buf_size = 4096
 	local buf = ffi.new("char[?]", buf_size)
-	if ffi.C.getcwd(buf, buf_size) == nil then
-		error("getcwd() failed")
-	end
+	assert(ffi.C.getcwd(buf, buf_size) ~= nil)
 	return ffi.string(buf)
 end
 
 local function change_dir(path)
-	if ffi.C.chdir(path) ~= 0 then
-		error('chdir("' .. path .. '") failed')
-	end
-end
-
-local function is_absolute_path(path)
-	return path:sub(1, 1) == "/"
-end
-
--- Resolving every path to an absolute one up front means chdir'ing into
--- and out of example directories can never drift/compound: each example's
--- path is computed once, from a fixed base, rather than being re-derived
--- relative to whatever the "current" working directory happens to be.
-local function to_absolute_path(path, base)
-	if is_absolute_path(path) then
-		return path
-	end
-	return base .. "/" .. path
+	assert(ffi.C.chdir(path) == 0)
 end
 
 local function push(t, value)
@@ -79,10 +64,7 @@ local function push(t, value)
 end
 
 local function list_subdirs(dir)
-	local handle, err = io.popen('find "' .. dir .. '" -mindepth 1 -maxdepth 1 -type d -printf "%f\\n" 2>/dev/null')
-	if not handle then
-		error('Failed to list directory "' .. dir .. '": ' .. tostring(err))
-	end
+	local handle = io.popen('find "' .. dir .. '" -mindepth 1 -maxdepth 1 -type d -printf "%f\\n" 2>/dev/null')
 
 	local entries = {}
 	for line in handle:lines() do
@@ -91,6 +73,8 @@ local function list_subdirs(dir)
 		end
 	end
 	handle:close()
+
+	assert(#entries > 0)
 
 	table.sort(entries)
 
@@ -105,6 +89,8 @@ local function dump_to_str(tbl, indent, seen)
 	if type(tbl) ~= "table" then
 		return prefix .. tostring(tbl)
 	end
+
+	-- luacov: disable
 
 	-- Prevents infinite recursion on cyclic tables
 	if seen[tbl] then
@@ -127,6 +113,8 @@ local function dump_to_str(tbl, indent, seen)
 
 	push(out, prefix .. "}")
 	return table.concat(out, "\n")
+
+	-- luacov: enable
 end
 
 local function print_traceback(err)
@@ -142,11 +130,7 @@ local function run_example(example_dir_abs)
 
 	local original_cwd = get_cwd()
 
-	local ok_chdir, chdir_err = pcall(change_dir, example_dir_abs)
-	if not ok_chdir then
-		print_traceback(chdir_err)
-		return
-	end
+	assert(pcall(change_dir, example_dir_abs))
 
 	-- Monkey-patch dofile so examples can load grug without breaking luacov
 	local old_dofile = _G.dofile
@@ -154,36 +138,32 @@ local function run_example(example_dir_abs)
 		if path:match("grug%.lua$") then
 			return require("grug")
 		end
+
+		-- luacov: disable
 		return old_dofile(path)
+		-- luacov: enable
 	end
 
 	-- Use absolute path for loadfile so luacov records it correctly
-	local chunk, load_err = loadfile(example_dir_abs .. "/example.lua")
-	if not chunk then
-		print_traceback(load_err)
-	else
-		_G.arg = { example_timeout_secs }
+	local chunk = assert(loadfile(example_dir_abs .. "/example.lua"))
 
-		local ok, err = pcall(chunk)
-		if not ok then
-			print_traceback(err)
-		end
+	_G.arg = { example_timeout_secs }
 
-		_G.arg = nil
+	local ok, err = pcall(chunk)
+	if not ok then
+		print_traceback(err)
 	end
+
+	_G.arg = nil
 
 	-- Restore original dofile
 	_G.dofile = old_dofile
 
-	local ok_restore, restore_err = pcall(change_dir, original_cwd)
-	if not ok_restore then
-		error('Failed to restore working directory to "' .. original_cwd .. '": ' .. tostring(restore_err))
-	end
+	assert(pcall(change_dir, original_cwd))
 end
 
 local function run_examples()
-	local original_cwd = get_cwd()
-	local examples_dir_abs = to_absolute_path("examples", original_cwd)
+	local examples_dir_abs = get_cwd() .. "/examples"
 
 	for _, entry in ipairs(list_subdirs(examples_dir_abs)) do
 		run_example(examples_dir_abs .. "/" .. entry)
@@ -415,9 +395,6 @@ local function register_fn(state, name)
 
 		for i, v in ipairs(args) do
 			local setter = LUA_TO_C_ARG[type(v)]
-			if not setter then
-				error("Unsupported argument type: " .. type(v))
-			end
 			setter(c_args[i - 1], v)
 		end
 
@@ -452,9 +429,6 @@ local function register_method(state, class_name, name, native_name)
 
 		for i, v in ipairs(args) do
 			local setter = LUA_TO_C_ARG[type(v)]
-			if not setter then
-				error("Unsupported argument type: " .. type(v))
-			end
 			setter(c_args[i - 1], v)
 		end
 
@@ -486,7 +460,9 @@ local function is_dir(path)
 	elseif path == ".grug_tmp_reloading_empty_file/reloading_empty_file/input-D.grug" then
 		return false
 	else
+		-- luacov: disable
 		error('Missing elseif for is_dir("' .. path .. '")')
+		-- luacov: enable
 	end
 end
 
@@ -500,7 +476,9 @@ local function list_dir(path)
 	elseif path == ".grug_tmp_reloading_empty_file/reloading_empty_file" then
 		return { "input-D.grug" }
 	else
+		-- luacov: disable
 		error('Missing elseif for list_dir("' .. path .. '")')
+		-- luacov: enable
 	end
 end
 
@@ -594,8 +572,10 @@ function callbacks.destroy_grug_file(_state_ptr_, file_id_)
 	-- Asserts that file.entities has weak keys
 	collectgarbage()
 	local count = 0
-	for _entity in pairs(files[file_id].entities) do -- luacheck: ignore
+	for _ in pairs(files[file_id].entities) do
+		-- luacov: disable
 		count = count + 1
+		-- luacov: enable
 	end
 	assert(count == 0)
 
@@ -618,21 +598,16 @@ function callbacks.create_entity(state_ptr_, file_id_, error_out_)
 
 	if not ok then
 		local err_type = type(err) == "table" and err.type
-		if
-			err_type == "STACK_OVERFLOW"
-			or err_type == "TIME_LIMIT_EXCEEDED"
-			or err_type == "RERAISED_GAME_FN_ERROR"
-		then
-			error_out_[0] = get_c_error_string(err.reason)
+		assert(
+			err_type == "STACK_OVERFLOW" or err_type == "TIME_LIMIT_EXCEEDED" or err_type == "RERAISED_GAME_FN_ERROR"
+		)
 
-			-- Necessary, as C doesn't propagate exceptions.
-			grug_runtime_err = err
+		error_out_[0] = get_c_error_string(err.reason)
 
-			return ffi.cast("void*", -1)
-		else
-			print_traceback(err)
-			return ffi.cast("void*", -1)
-		end
+		-- Necessary, as C doesn't propagate exceptions.
+		grug_runtime_err = err
+
+		return ffi.cast("void*", -1)
 	end
 
 	local entity_id = #entities + 1
@@ -696,16 +671,12 @@ function callbacks.call_export_fn(_state_ptr_, entity_id_, fn_name_, args, args_
 
 	if not ok then
 		local err_type = type(err) == "table" and err.type
-		if
-			err_type == "STACK_OVERFLOW"
-			or err_type == "TIME_LIMIT_EXCEEDED"
-			or err_type == "RERAISED_GAME_FN_ERROR"
-		then
-			-- Necessary, as C doesn't propagate exceptions.
-			grug_runtime_err = err
-		else
-			error(dump_to_str(err))
-		end
+		assert(
+			err_type == "STACK_OVERFLOW" or err_type == "TIME_LIMIT_EXCEEDED" or err_type == "RERAISED_GAME_FN_ERROR"
+		)
+
+		-- Necessary, as C doesn't propagate exceptions.
+		grug_runtime_err = err
 	end
 end
 
@@ -717,8 +688,10 @@ local function make_io_callback(method)
 		local input_text = ffi.string(input_buffer_)
 		local ok, result = pcall(state[method], state, input_text)
 		if not ok then
+			-- luacov: disable
 			print_traceback(result)
 			return true
+			-- luacov: enable
 		end
 
 		assert(type(result) == "string")
@@ -726,6 +699,7 @@ local function make_io_callback(method)
 
 		-- Check if we have space for result + null terminator
 		if result_len + 1 > output_buffer_len then
+			-- luacov: disable
 			print_traceback(
 				string.format(
 					"%s: output buffer too small (need %d bytes, have %d)",
@@ -735,6 +709,7 @@ local function make_io_callback(method)
 				)
 			)
 			return true
+			-- luacov: enable
 		end
 
 		copy_str(output_buffer_, result)
