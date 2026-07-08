@@ -32,8 +32,8 @@ repos:
         language: system
         entry: >
           sh -c '
-            if grep -nEr "	(local function|function)" --include="*.lua" .; then
-              echo "Error: Nested function definitions found in Lua files."
+            if grep -nEr "^[[:space:]]+(local )?function" --include="*.lua" .; then
+              echo "Error: Nested function definition found in Lua file."
               exit 1
             fi
           '
