@@ -54,10 +54,6 @@ local EXPECTED_TYPES = {
 	entity = "string",
 }
 
-local function _get_expected_type(type_name)
-	return EXPECTED_TYPES[type_name] or "table"
-end
-
 -- Create a new interpreter-entity for `grug_entity`.
 -- May raise a Lua error if a runtime error occurs during global-variable
 -- initialisation (e.g. STACK_OVERFLOW / TIME_LIMIT_EXCEEDED).
@@ -124,7 +120,7 @@ function _InterpreterEntity:_run_export_fn(export_fn_name, ...)
 	local export_fn = self.file.export_fns[export_fn_name]
 	if not export_fn then
 		self._flow = {
-			type = "ERROR",
+			type = "EXPORT_FN_DOES_NOT_EXIST",
 			err = "The function '" .. export_fn_name .. "' is not defined by the file " .. self.file.relative_path,
 		}
 		return
@@ -144,27 +140,7 @@ function _InterpreterEntity:_run_export_fn(export_fn_name, ...)
 
 	-- Assign and verify parameter types
 	for i, parameter in ipairs(export_fn.parameters) do
-		local param = params[i]
-
-		if self.state.safe_mode then
-			local expected = _get_expected_type(parameter.type_name)
-			if type(param) ~= expected then
-				self.local_variables = parent_local_variables
-				self._flow = {
-					type = "ERROR",
-					err = string.format(
-						"Argument '%s' of %s() must be %s, got %s",
-						parameter.name,
-						export_fn_name,
-						parameter.type_name,
-						type(param)
-					),
-				}
-				return
-			end
-		end
-
-		self.local_variables[parameter.name] = param
+		self.local_variables[parameter.name] = params[i]
 	end
 
 	local old_fn_depth = self.state.fn_depth
@@ -189,8 +165,6 @@ function _InterpreterEntity:_run_export_fn(export_fn_name, ...)
 			or flow_type == "RERAISED_GAME_FN_ERROR"
 		then
 			should_propagate = self.state.fn_depth > 1
-		elseif flow_type == "ERROR" then
-			should_propagate = true
 		end
 		-- RETURN / BREAK / CONTINUE at export_fn level: consumed (not propagated)
 	end
@@ -547,22 +521,6 @@ function _InterpreterEntity:_run_host_fn(name, args)
 		return
 	end
 
-	if self.state.safe_mode then
-		local expected = _get_expected_type(t)
-		if type(result) ~= expected then
-			self._flow = {
-				type = "ERROR",
-				err = string.format(
-					"Return value of game function %s() must be %s, got %s",
-					name,
-					expected,
-					type(result)
-				),
-			}
-			return
-		end
-	end
-
 	return result
 end
 
@@ -587,10 +545,6 @@ end
 --
 local InterpreterBackend = {}
 InterpreterBackend.__index = InterpreterBackend
-
-function InterpreterBackend.new()
-	return setmetatable({}, InterpreterBackend)
-end
 
 -- Migrate entity data when a file is hot-reloaded.
 -- For a fresh compile (existing_file == nil) this is a no-op.
@@ -639,26 +593,10 @@ end
 function InterpreterBackend:call_on_function(entity, export_fn_name, ...) -- luacheck: ignore
 	local interp = entity.data
 
-	if not interp.state.safe_mode then
-		interp:_run_export_fn(export_fn_name, ...)
-		return
-	end
-
 	local ok, err = pcall(interp._run_export_fn, interp, export_fn_name, ...)
 
 	if not ok then
 		interp._flow = nil
-
-		-- In safe mode, game functions signal errors by throwing a table with
-		-- type = "GAME_FN_ERROR"; route those to runtime_error_handler.
-		-- When safe_mode is false the raw error is re-raised like any other.
-		if type(err) == "table" and err.type == "GAME_FN_ERROR" then
-			interp.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", interp.fn_name, interp.file.relative_path)
-			return
-		end
-
-		-- Any other Lua error (including RERAISED_GAME_FN_ERROR, STACK_OVERFLOW,
-		-- TIME_LIMIT_EXCEEDED): re-raise so the caller's pcall can handle it.
 		error(err, 0)
 	end
 
