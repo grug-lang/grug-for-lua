@@ -600,6 +600,9 @@ function callbacks.destroy_grug_file(_state_ptr_, file_id_)
 	local file_id = to_uintptr(file_id_)
 
 	-- Asserts that file.entities has weak keys
+	if jit then
+		jit.flush()
+	end
 	collectgarbage()
 	local count = 0
 	for _ in pairs(files[file_id].entities) do
