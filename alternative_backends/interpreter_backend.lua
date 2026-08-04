@@ -46,14 +46,6 @@ local BINARY_OPS = {
 	end,
 }
 
-local EXPECTED_TYPES = {
-	number = "number",
-	bool = "boolean",
-	string = "string",
-	resource = "string",
-	entity = "string",
-}
-
 -- Create a new interpreter-entity for `grug_entity`.
 -- May raise a Lua error if a runtime error occurs during global-variable
 -- initialisation (e.g. STACK_OVERFLOW / TIME_LIMIT_EXCEEDED).
