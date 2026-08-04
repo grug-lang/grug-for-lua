@@ -122,15 +122,20 @@ jobs:
               --impl "luajit -jv" luajit.json \
               2>&1 | tee luajit.log
 
-            # Remove `NYI: return to lower frame` lines from the log,
-            # as they occur sporadically and can't be fixed by the code.
-            # See https://github.com/grug-lang/grug-for-lua/issues/16
+            # Remove `NYI: return to lower frame` lines from the log.
             CLEANED_LOG=$(sed '/NYI: return to lower frame/d' luajit.log)
 
-            # Check if any other unexpected NYI strings remain.
+            # Check if any other NYI lines remain.
             if echo "$CLEANED_LOG" | grep -q 'NYI'; then
                 echo "ERROR: Unexpected NYI detected in LuaJIT trace output" >&2
                 echo "$CLEANED_LOG" | grep 'NYI' >&2
+                exit 1
+            fi
+
+            # Check if any blacklisted lines remain.
+            if echo "$CLEANED_LOG" | grep -q 'blacklisted'; then
+                echo "ERROR: Blacklisted function detected in LuaJIT trace output" >&2
+                echo "$CLEANED_LOG" | grep 'blacklisted' >&2
                 exit 1
             fi
           elif [ "${{ matrix.lua }}" = "luajit-remake" ]; then
