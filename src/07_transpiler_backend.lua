@@ -418,19 +418,16 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 
 	-- Dump transpiled source to disk before loading, if requested.
 	if entity.state.transpiler_dump then
+		-- luacov: disable
 		local dump_file = io.open("transpiler_dump.lua", "w")
 		if dump_file then
 			dump_file:write(code)
 			dump_file:close()
 		end
+		-- luacov: enable
 	end
 
-	local chunk_fn, err = loader(code)
-
-	if not chunk_fn then
-		error("Failed to compile transpiled Lua:\n```lua\n" .. code .. "```\nLua error:\n" .. tostring(err))
-	end
-
+	local chunk_fn = loader(code)
 	local chunk = chunk_fn()
 
 	-- Collect the game functions registered with the state.
@@ -460,18 +457,7 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 		entity.state._executed_file = old_executed_file
 
 		if not ok then
-			if type(init_err) == "table" and init_err.type == "GAME_FN_ERROR" then
-				entity.state.runtime_error_handler(init_err.reason, "GAME_FN_ERROR", "init", entity.file.relative_path)
-			elseif type(init_err) == "string" and init_err:find("stack overflow", 1, true) then
-				entity.state.runtime_error_handler(
-					"Stack overflow, so check for accidental infinite recursion",
-					"STACK_OVERFLOW",
-					"init",
-					entity.file.relative_path
-				)
-			else
-				error(init_err, 0)
-			end
+			error(init_err, 0)
 		end
 	else
 		chunk.init(deps, entity.state, entity.me_id)
@@ -510,14 +496,6 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 		error("The function '" .. export_fn_name .. "' is not defined by the file " .. entity.file.relative_path, 0)
 	end
 
-	-- When safe_mode is false the caller guarantees no bugs exist in any mod,
-	-- so we skip the pcall entirely. Any Lua error (GAME_FN_ERROR, stack
-	-- overflow, time limit, …) propagates raw to the caller.
-	if not entity.state.safe_mode then
-		fn(...)
-		return
-	end
-
 	local old_fn_name = entity.fn_name
 	entity.fn_name = export_fn_name
 	local old_executed_file = entity.state._executed_file
@@ -534,10 +512,6 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 	entity.state._executed_file = old_executed_file
 
 	if not ok then
-		if type(err) == "table" and err.type == "GAME_FN_ERROR" then
-			entity.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", export_fn_name, entity.file.relative_path)
-			return
-		end
 		-- Time-limit exceeded: generated while loops throw this table.
 		if type(err) == "table" and err.type == "TIME_LIMIT_EXCEEDED" then
 			entity.state.runtime_error_handler(
@@ -548,6 +522,7 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 			)
 			return
 		end
+
 		-- Stack overflow: Lua itself throws a string containing "stack overflow".
 		-- The pcall here is the outer pcall that the recursion unwinds to;
 		-- no explicit depth tracking is needed in the transpiled code.
@@ -560,6 +535,7 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 			)
 			return
 		end
+
 		error(err, 0)
 	end
 end

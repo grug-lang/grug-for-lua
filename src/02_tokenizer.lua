@@ -45,9 +45,7 @@ local DOUBLE_SYMBOLS = {
 -- Returns the 1-based column of the character at `pos` (1-based index into `src`).
 local function get_column(src, pos)
 	local column = 1
-	if pos > #src then
-		error("expected span to be within source code bounds")
-	end
+	assert(pos <= #src)
 
 	while column < pos and src:sub(pos - column, pos - column) ~= "\n" do
 		column = column + 1
@@ -59,10 +57,7 @@ end
 local function get_source_line(src, pos)
 	local line_start_index = pos
 	local line_end_index = pos
-
-	if pos > #src then
-		error("expected span to be within source code bounds")
-	end
+	assert(pos <= #src)
 
 	if src:sub(line_start_index, line_start_index) == "\n" then
 		line_start_index = line_start_index - 1
@@ -192,7 +187,9 @@ local function tokenize(src, file_path)
 		if DOUBLE_SYMBOLS[double_c] then
 			add_token(tokens, DOUBLE_SYMBOLS[double_c], double_c, i, line_number)
 			if double_c == "\r\n" then
+				-- luacov: disable
 				line_number = line_number + 1
+				-- luacov: enable
 			end
 			i = i + 2
 

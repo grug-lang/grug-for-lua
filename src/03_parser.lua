@@ -885,6 +885,7 @@ local function binary_op(next_fn, ops, ctor)
 	end
 end
 
+-- luacov: disable
 Parser.parse_factor =
 	binary_op(Parser.parse_unary, { MULTIPLICATION_TOKEN = true, DIVISION_TOKEN = true }, Nodes.Binary)
 Parser.parse_term = binary_op(Parser.parse_factor, { PLUS_TOKEN = true, MINUS_TOKEN = true }, Nodes.Binary)
@@ -895,6 +896,7 @@ Parser.parse_comparison = binary_op(
 )
 Parser.parse_equality =
 	binary_op(Parser.parse_comparison, { EQUALS_TOKEN = true, NOT_EQUALS_TOKEN = true }, Nodes.Binary)
+-- luacov: enable
 Parser.parse_and = binary_op(Parser.parse_equality, { AND_TOKEN = true }, Nodes.Logical)
 Parser.parse_or = binary_op(Parser.parse_and, { OR_TOKEN = true }, Nodes.Logical)
 

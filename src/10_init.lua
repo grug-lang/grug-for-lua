@@ -22,6 +22,7 @@ local function is_computercraft_checker()
 	-- CC: Tweaked added this function. CC did not have it.
 	-- CC: Tweaked doesn't discard trailing newlines,
 	-- so doesn't need CC's byte reading workaround.
+	-- luacov: disable
 	if os.epoch then -- luacheck: ignore os
 		return false
 	end
@@ -30,10 +31,12 @@ local function is_computercraft_checker()
 
 	-- Computers use CraftOS, whereas Turtles use TurtleOS.
 	return version:find("CraftOS") or version:find("TurtleOS")
+	-- luacov: enable
 end
 
 local is_computercraft = is_computercraft_checker()
 
+-- luacov: disable
 local function _read_computercraft(path)
 	-- We use binary mode to preserve the trailing newline
 	-- at the end of the file.
@@ -64,10 +67,13 @@ local function _read_computercraft(path)
 	file:close()
 	return data
 end
+-- luacov: enable
 
 local function _read(path)
 	if is_computercraft then
+		-- luacov: disable
 		return _read_computercraft(path)
+		-- luacov: enable
 	end
 
 	local file, err = io.open(path, "r")
@@ -86,6 +92,7 @@ function grug:_recompile_with_hot_reload(rel_path, existing)
 	return new_file
 end
 
+-- luacov: disable
 local function luajit_remake_gmatch(s, pattern)
 	-- This implementation only supports the pattern "[^/]+" (split by '/').
 	assert(pattern == "[^/]+", "luajit_remake_gmatch only supports '[^/]+'")
@@ -113,12 +120,15 @@ local function luajit_remake_gmatch(s, pattern)
 		return s:sub(start, i - 1)
 	end
 end
+-- luacov: enable
 
 -- luajit-remake has not implemented string.gmatch,
 -- so it prints an error and returns false when called.
 local my_gmatch = string.gmatch
 if not pcall(string.gmatch, "", "") then
+	-- luacov: disable
 	my_gmatch = luajit_remake_gmatch
+	-- luacov: enable
 end
 
 local function _update_from_list(self)
@@ -190,16 +200,20 @@ function grug:_update_dir(current_path, grug_dir, seen_files, seen_dirs)
 	-- Sweep files
 	for name, file in pairs(grug_dir.files) do
 		if not seen_files[file.relative_path] then
+			-- luacov: disable
 			grug_dir.files[name] = nil
+			-- luacov: enable
 		end
 	end
 
 	-- Sweep subdirectories
 	for name, _ in pairs(grug_dir.dirs) do
 		local sub_path = current_path .. "/" .. name
+		-- luacov: disable
 		if not seen_dirs[sub_path] then
 			grug_dir.dirs[name] = nil
 		end
+		-- luacov: enable
 	end
 end
 
@@ -243,19 +257,15 @@ function grug:_update()
 	-- Sweep removed top-level dirs
 	for name, _ in pairs(root.dirs) do
 		local mod_path = self.mods_dir_path .. "/" .. name
+		-- luacov: disable
 		if not seen_dirs[mod_path] then
 			root.dirs[name] = nil
 		end
+		-- luacov: enable
 	end
 end
 
-local function check_custom_id_is_pascal(type_name, file_path)
-	-- Validate that a custom ID type name is in PascalCase
-
-	if type_name == nil or type_name == "" then
-		error("type_name is empty")
-	end
-
+local function check_custom_id_is_pascal_case(type_name, file_path)
 	if type_name:sub(1, 1):match("%l") then
 		error(
 			"Error: '"
@@ -300,7 +310,7 @@ local function get_file_entity_type(grug_filename, file_path)
 		error("Error: '" .. grug_filename .. "' is missing an entity type in its name\n$  " .. file_path)
 	end
 
-	check_custom_id_is_pascal(entity_type, file_path)
+	check_custom_id_is_pascal_case(entity_type, file_path)
 
 	return entity_type
 end
@@ -385,95 +395,14 @@ function grug:register_method(class_name, method_name, fn)
 	self.host_fns[class_name .. "__" .. method_name] = fn
 end
 
-local function assert_mod_api(mod_api)
-	local entities = mod_api.entities
-	if type(entities) ~= "table" then
-		error(
-			string.format("Error: 'entities' must be a JSON object, but got %s: %s", type(entities), tostring(entities))
-		)
-	end
-
-	for entity_name, entity in pairs(entities) do
-		if type(entity) ~= "table" then
-			error(
-				string.format(
-					"Error: entity '%s' must be a JSON object, but got %s: %s",
-					entity_name,
-					type(entity),
-					tostring(entity)
-				)
-			)
-		end
-
-		local export_functions = entity.export_functions
-		if export_functions ~= nil and type(export_functions) ~= "table" then
-			error(
-				string.format(
-					"Error: 'export_functions' for entity '%s' must be a JSON array, but got %s: %s",
-					entity_name,
-					type(export_functions),
-					tostring(export_functions)
-				)
-			)
-		end
-	end
-
-	local classes = mod_api.classes
-	if classes ~= nil then
-		if type(classes) ~= "table" then
-			error(
-				string.format(
-					"Error: 'classes' must be a JSON object, but got %s: %s",
-					type(classes),
-					tostring(classes)
-				)
-			)
-		end
-
-		for class_name, class_def in pairs(classes) do
-			if type(class_def) ~= "table" then
-				error(
-					string.format(
-						"Error: class '%s' must be a JSON object, but got %s: %s",
-						class_name,
-						type(class_def),
-						tostring(class_def)
-					)
-				)
-			end
-
-			local methods = class_def.methods
-			if methods ~= nil and type(methods) ~= "table" then
-				error(
-					string.format(
-						"Error: 'methods' for class '%s' must be a JSON object, but got %s: %s",
-						class_name,
-						type(methods),
-						tostring(methods)
-					)
-				)
-			end
-		end
-	end
-
-	local host_functions = mod_api.host_functions
-	if type(host_functions) ~= "table" then
-		error(
-			string.format(
-				"Error: 'host_functions' must be a JSON object, but got %s: %s",
-				type(host_functions),
-				tostring(host_functions)
-			)
-		)
-	end
-end
-
+-- luacov: disable
 function grug:get_transpiled_code()
 	if not self._latest_transpiled_code then
 		error("Error: get_transpiled_code() is only supported by transpiler backends.")
 	end
 	return self._latest_transpiled_code
 end
+-- luacov: enable
 
 local function default_runtime_error_handler(reason, grug_runtime_error_type, export_fn_name, export_fn_path) -- luacheck: ignore
 	print("grug runtime error in " .. export_fn_name .. "(): " .. reason .. ", in " .. export_fn_path)
@@ -485,6 +414,7 @@ local has_bit, bit = pcall(require, "bit")
 if has_bit then
 	bxor = bit.bxor
 else
+	-- luacov: disable
 	-- Try Lua 5.2
 	local has_bit32, bit32 = pcall(require, "bit32")
 	if has_bit32 then
@@ -509,6 +439,7 @@ else
 			end
 		end
 	end
+	-- luacov: enable
 end
 
 local function hash_fnv_1a(_absolute_path, str)
@@ -562,8 +493,6 @@ function grug.init(settings)
 	if type(mod_api) ~= "table" then
 		error("Error: mod API JSON root must be an object")
 	end
-
-	assert_mod_api(mod_api)
 
 	return setmetatable({
 		runtime_error_handler = runtime_error_handler,

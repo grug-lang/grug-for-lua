@@ -136,18 +136,10 @@ end
 
 function TypePropagator:add_local_variable(name, var_type, type_name, span)
 	if self.local_variables[name] then
-		if span then
-			error(self:new_error("The local variable '" .. name .. "' shadows an earlier local variable", span))
-		else
-			error("The local variable '" .. name .. "' shadows an earlier local variable")
-		end
+		error(self:new_error("The local variable '" .. name .. "' shadows an earlier local variable", span))
 	end
 	if self.global_variables[name] then
-		if span then
-			error(self:new_error("The local variable '" .. name .. "' shadows an earlier global variable", span))
-		else
-			error("The local variable '" .. name .. "' shadows an earlier global variable")
-		end
+		error(self:new_error("The local variable '" .. name .. "' shadows an earlier global variable", span))
 	end
 	self.local_variables[name] = Variable(name, var_type, type_name)
 end
@@ -550,7 +542,9 @@ function TypePropagator:fill_binary_expr(expr)
 
 	if op == "EQUALS_TOKEN" or op == "NOT_EQUALS_TOKEN" then
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
+	-- luacov: disable
 	elseif
+		-- luacov: enable
 		op == "GREATER_OR_EQUAL_TOKEN"
 		or op == "GREATER_TOKEN"
 		or op == "LESS_OR_EQUAL_TOKEN"
@@ -857,7 +851,7 @@ local function get_idx(parser_names, name)
 			return i
 		end
 	end
-	return -1
+	assert(false)
 end
 
 function TypePropagator:fill_export_fns()

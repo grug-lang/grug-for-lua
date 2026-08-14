@@ -1,12 +1,6 @@
 local GrugDir = {}
 
 GrugDir.__index = function(self, key)
-	-- Raw lookup for methods
-	local method = rawget(GrugDir, key)
-	if method ~= nil then
-		return method
-	end
-
 	-- Directory lookup
 	local dir = self.dirs[key]
 	if dir ~= nil then

@@ -163,6 +163,7 @@ luarocks install luacov
 Collect and output coverage information:
 ```sh
 rm -f luacov.stats.out && # Workaround for luacov appending, rather than overwriting
+python amalgamate.py &&
 luajit -lluacov tests.lua &&
 luacov && # Outputs luacov.report.out
 tail luacov.report.out &&

@@ -6,11 +6,6 @@
 local GrugEntity = {}
 
 function GrugEntity:__index(key) -- luacheck: ignore
-	local val = rawget(GrugEntity, key)
-	if val ~= nil then
-		return val
-	end
-
 	local fn = self.state.backend:get_export_fn(self, key)
 	rawset(self, key, fn) -- cache: future accesses hit the table directly, no __index
 	return fn

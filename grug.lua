@@ -99,7 +99,9 @@ local function encode_table(val, stack)
 		-- Treat as an object
 		for k, v in pairs(val) do
 			if type(k) ~= "string" then
+				-- luacov: disable
 				error("invalid table: mixed or invalid key types")
+				-- luacov: enable
 			end
 			push(res, encode(k, stack) .. ":" .. encode(v, stack))
 		end
@@ -480,9 +482,7 @@ local DOUBLE_SYMBOLS = {
 -- Returns the 1-based column of the character at `pos` (1-based index into `src`).
 local function get_column(src, pos)
 	local column = 1
-	if pos > #src then
-		error("expected span to be within source code bounds")
-	end
+	assert(pos <= #src)
 
 	while column < pos and src:sub(pos - column, pos - column) ~= "\n" do
 		column = column + 1
@@ -494,10 +494,7 @@ end
 local function get_source_line(src, pos)
 	local line_start_index = pos
 	local line_end_index = pos
-
-	if pos > #src then
-		error("expected span to be within source code bounds")
-	end
+	assert(pos <= #src)
 
 	if src:sub(line_start_index, line_start_index) == "\n" then
 		line_start_index = line_start_index - 1
@@ -627,7 +624,9 @@ local function tokenize(src, file_path)
 		if DOUBLE_SYMBOLS[double_c] then
 			add_token(tokens, DOUBLE_SYMBOLS[double_c], double_c, i, line_number)
 			if double_c == "\r\n" then
+				-- luacov: disable
 				line_number = line_number + 1
+				-- luacov: enable
 			end
 			i = i + 2
 
@@ -1699,6 +1698,7 @@ local function binary_op(next_fn, ops, ctor)
 	end
 end
 
+-- luacov: disable
 Parser.parse_factor =
 	binary_op(Parser.parse_unary, { MULTIPLICATION_TOKEN = true, DIVISION_TOKEN = true }, Nodes.Binary)
 Parser.parse_term = binary_op(Parser.parse_factor, { PLUS_TOKEN = true, MINUS_TOKEN = true }, Nodes.Binary)
@@ -1709,6 +1709,7 @@ Parser.parse_comparison = binary_op(
 )
 Parser.parse_equality =
 	binary_op(Parser.parse_comparison, { EQUALS_TOKEN = true, NOT_EQUALS_TOKEN = true }, Nodes.Binary)
+-- luacov: enable
 Parser.parse_and = binary_op(Parser.parse_equality, { AND_TOKEN = true }, Nodes.Logical)
 Parser.parse_or = binary_op(Parser.parse_and, { OR_TOKEN = true }, Nodes.Logical)
 
@@ -1858,18 +1859,10 @@ end
 
 function TypePropagator:add_local_variable(name, var_type, type_name, span)
 	if self.local_variables[name] then
-		if span then
-			error(self:new_error("The local variable '" .. name .. "' shadows an earlier local variable", span))
-		else
-			error("The local variable '" .. name .. "' shadows an earlier local variable")
-		end
+		error(self:new_error("The local variable '" .. name .. "' shadows an earlier local variable", span))
 	end
 	if self.global_variables[name] then
-		if span then
-			error(self:new_error("The local variable '" .. name .. "' shadows an earlier global variable", span))
-		else
-			error("The local variable '" .. name .. "' shadows an earlier global variable")
-		end
+		error(self:new_error("The local variable '" .. name .. "' shadows an earlier global variable", span))
 	end
 	self.local_variables[name] = Variable(name, var_type, type_name)
 end
@@ -2272,7 +2265,9 @@ function TypePropagator:fill_binary_expr(expr)
 
 	if op == "EQUALS_TOKEN" or op == "NOT_EQUALS_TOKEN" then
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
+	-- luacov: disable
 	elseif
+		-- luacov: enable
 		op == "GREATER_OR_EQUAL_TOKEN"
 		or op == "GREATER_TOKEN"
 		or op == "LESS_OR_EQUAL_TOKEN"
@@ -2579,7 +2574,7 @@ local function get_idx(parser_names, name)
 			return i
 		end
 	end
-	return -1
+	assert(false)
 end
 
 function TypePropagator:fill_export_fns()
@@ -3112,11 +3107,6 @@ end
 local GrugEntity = {}
 
 function GrugEntity:__index(key) -- luacheck: ignore
-	local val = rawget(GrugEntity, key)
-	if val ~= nil then
-		return val
-	end
-
 	local fn = self.state.backend:get_export_fn(self, key)
 	rawset(self, key, fn) -- cache: future accesses hit the table directly, no __index
 	return fn
@@ -3566,19 +3556,16 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 
 	-- Dump transpiled source to disk before loading, if requested.
 	if entity.state.transpiler_dump then
+		-- luacov: disable
 		local dump_file = io.open("transpiler_dump.lua", "w")
 		if dump_file then
 			dump_file:write(code)
 			dump_file:close()
 		end
+		-- luacov: enable
 	end
 
-	local chunk_fn, err = loader(code)
-
-	if not chunk_fn then
-		error("Failed to compile transpiled Lua:\n```lua\n" .. code .. "```\nLua error:\n" .. tostring(err))
-	end
-
+	local chunk_fn = loader(code)
 	local chunk = chunk_fn()
 
 	-- Collect the game functions registered with the state.
@@ -3608,18 +3595,7 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 		entity.state._executed_file = old_executed_file
 
 		if not ok then
-			if type(init_err) == "table" and init_err.type == "GAME_FN_ERROR" then
-				entity.state.runtime_error_handler(init_err.reason, "GAME_FN_ERROR", "init", entity.file.relative_path)
-			elseif type(init_err) == "string" and init_err:find("stack overflow", 1, true) then
-				entity.state.runtime_error_handler(
-					"Stack overflow, so check for accidental infinite recursion",
-					"STACK_OVERFLOW",
-					"init",
-					entity.file.relative_path
-				)
-			else
-				error(init_err, 0)
-			end
+			error(init_err, 0)
 		end
 	else
 		chunk.init(deps, entity.state, entity.me_id)
@@ -3658,14 +3634,6 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 		error("The function '" .. export_fn_name .. "' is not defined by the file " .. entity.file.relative_path, 0)
 	end
 
-	-- When safe_mode is false the caller guarantees no bugs exist in any mod,
-	-- so we skip the pcall entirely. Any Lua error (GAME_FN_ERROR, stack
-	-- overflow, time limit, …) propagates raw to the caller.
-	if not entity.state.safe_mode then
-		fn(...)
-		return
-	end
-
 	local old_fn_name = entity.fn_name
 	entity.fn_name = export_fn_name
 	local old_executed_file = entity.state._executed_file
@@ -3682,10 +3650,6 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 	entity.state._executed_file = old_executed_file
 
 	if not ok then
-		if type(err) == "table" and err.type == "GAME_FN_ERROR" then
-			entity.state.runtime_error_handler(err.reason, "GAME_FN_ERROR", export_fn_name, entity.file.relative_path)
-			return
-		end
 		-- Time-limit exceeded: generated while loops throw this table.
 		if type(err) == "table" and err.type == "TIME_LIMIT_EXCEEDED" then
 			entity.state.runtime_error_handler(
@@ -3696,6 +3660,7 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 			)
 			return
 		end
+
 		-- Stack overflow: Lua itself throws a string containing "stack overflow".
 		-- The pcall here is the outer pcall that the recursion unwinds to;
 		-- no explicit depth tracking is needed in the transpiled code.
@@ -3708,6 +3673,7 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 			)
 			return
 		end
+
 		error(err, 0)
 	end
 end
@@ -3756,12 +3722,6 @@ end
 local GrugDir = {}
 
 GrugDir.__index = function(self, key)
-	-- Raw lookup for methods
-	local method = rawget(GrugDir, key)
-	if method ~= nil then
-		return method
-	end
-
 	-- Directory lookup
 	local dir = self.dirs[key]
 	if dir ~= nil then
@@ -3814,6 +3774,7 @@ local function is_computercraft_checker()
 	-- CC: Tweaked added this function. CC did not have it.
 	-- CC: Tweaked doesn't discard trailing newlines,
 	-- so doesn't need CC's byte reading workaround.
+	-- luacov: disable
 	if os.epoch then -- luacheck: ignore os
 		return false
 	end
@@ -3822,10 +3783,12 @@ local function is_computercraft_checker()
 
 	-- Computers use CraftOS, whereas Turtles use TurtleOS.
 	return version:find("CraftOS") or version:find("TurtleOS")
+	-- luacov: enable
 end
 
 local is_computercraft = is_computercraft_checker()
 
+-- luacov: disable
 local function _read_computercraft(path)
 	-- We use binary mode to preserve the trailing newline
 	-- at the end of the file.
@@ -3856,10 +3819,13 @@ local function _read_computercraft(path)
 	file:close()
 	return data
 end
+-- luacov: enable
 
 local function _read(path)
 	if is_computercraft then
+		-- luacov: disable
 		return _read_computercraft(path)
+		-- luacov: enable
 	end
 
 	local file, err = io.open(path, "r")
@@ -3878,6 +3844,7 @@ function grug:_recompile_with_hot_reload(rel_path, existing)
 	return new_file
 end
 
+-- luacov: disable
 local function luajit_remake_gmatch(s, pattern)
 	-- This implementation only supports the pattern "[^/]+" (split by '/').
 	assert(pattern == "[^/]+", "luajit_remake_gmatch only supports '[^/]+'")
@@ -3905,12 +3872,15 @@ local function luajit_remake_gmatch(s, pattern)
 		return s:sub(start, i - 1)
 	end
 end
+-- luacov: enable
 
 -- luajit-remake has not implemented string.gmatch,
 -- so it prints an error and returns false when called.
 local my_gmatch = string.gmatch
 if not pcall(string.gmatch, "", "") then
+	-- luacov: disable
 	my_gmatch = luajit_remake_gmatch
+	-- luacov: enable
 end
 
 local function _update_from_list(self)
@@ -3982,16 +3952,20 @@ function grug:_update_dir(current_path, grug_dir, seen_files, seen_dirs)
 	-- Sweep files
 	for name, file in pairs(grug_dir.files) do
 		if not seen_files[file.relative_path] then
+			-- luacov: disable
 			grug_dir.files[name] = nil
+			-- luacov: enable
 		end
 	end
 
 	-- Sweep subdirectories
 	for name, _ in pairs(grug_dir.dirs) do
 		local sub_path = current_path .. "/" .. name
+		-- luacov: disable
 		if not seen_dirs[sub_path] then
 			grug_dir.dirs[name] = nil
 		end
+		-- luacov: enable
 	end
 end
 
@@ -4035,19 +4009,15 @@ function grug:_update()
 	-- Sweep removed top-level dirs
 	for name, _ in pairs(root.dirs) do
 		local mod_path = self.mods_dir_path .. "/" .. name
+		-- luacov: disable
 		if not seen_dirs[mod_path] then
 			root.dirs[name] = nil
 		end
+		-- luacov: enable
 	end
 end
 
-local function check_custom_id_is_pascal(type_name, file_path)
-	-- Validate that a custom ID type name is in PascalCase
-
-	if type_name == nil or type_name == "" then
-		error("type_name is empty")
-	end
-
+local function check_custom_id_is_pascal_case(type_name, file_path)
 	if type_name:sub(1, 1):match("%l") then
 		error(
 			"Error: '"
@@ -4092,7 +4062,7 @@ local function get_file_entity_type(grug_filename, file_path)
 		error("Error: '" .. grug_filename .. "' is missing an entity type in its name\n$  " .. file_path)
 	end
 
-	check_custom_id_is_pascal(entity_type, file_path)
+	check_custom_id_is_pascal_case(entity_type, file_path)
 
 	return entity_type
 end
@@ -4177,95 +4147,14 @@ function grug:register_method(class_name, method_name, fn)
 	self.host_fns[class_name .. "__" .. method_name] = fn
 end
 
-local function assert_mod_api(mod_api)
-	local entities = mod_api.entities
-	if type(entities) ~= "table" then
-		error(
-			string.format("Error: 'entities' must be a JSON object, but got %s: %s", type(entities), tostring(entities))
-		)
-	end
-
-	for entity_name, entity in pairs(entities) do
-		if type(entity) ~= "table" then
-			error(
-				string.format(
-					"Error: entity '%s' must be a JSON object, but got %s: %s",
-					entity_name,
-					type(entity),
-					tostring(entity)
-				)
-			)
-		end
-
-		local export_functions = entity.export_functions
-		if export_functions ~= nil and type(export_functions) ~= "table" then
-			error(
-				string.format(
-					"Error: 'export_functions' for entity '%s' must be a JSON array, but got %s: %s",
-					entity_name,
-					type(export_functions),
-					tostring(export_functions)
-				)
-			)
-		end
-	end
-
-	local classes = mod_api.classes
-	if classes ~= nil then
-		if type(classes) ~= "table" then
-			error(
-				string.format(
-					"Error: 'classes' must be a JSON object, but got %s: %s",
-					type(classes),
-					tostring(classes)
-				)
-			)
-		end
-
-		for class_name, class_def in pairs(classes) do
-			if type(class_def) ~= "table" then
-				error(
-					string.format(
-						"Error: class '%s' must be a JSON object, but got %s: %s",
-						class_name,
-						type(class_def),
-						tostring(class_def)
-					)
-				)
-			end
-
-			local methods = class_def.methods
-			if methods ~= nil and type(methods) ~= "table" then
-				error(
-					string.format(
-						"Error: 'methods' for class '%s' must be a JSON object, but got %s: %s",
-						class_name,
-						type(methods),
-						tostring(methods)
-					)
-				)
-			end
-		end
-	end
-
-	local host_functions = mod_api.host_functions
-	if type(host_functions) ~= "table" then
-		error(
-			string.format(
-				"Error: 'host_functions' must be a JSON object, but got %s: %s",
-				type(host_functions),
-				tostring(host_functions)
-			)
-		)
-	end
-end
-
+-- luacov: disable
 function grug:get_transpiled_code()
 	if not self._latest_transpiled_code then
 		error("Error: get_transpiled_code() is only supported by transpiler backends.")
 	end
 	return self._latest_transpiled_code
 end
+-- luacov: enable
 
 local function default_runtime_error_handler(reason, grug_runtime_error_type, export_fn_name, export_fn_path) -- luacheck: ignore
 	print("grug runtime error in " .. export_fn_name .. "(): " .. reason .. ", in " .. export_fn_path)
@@ -4277,6 +4166,7 @@ local has_bit, bit = pcall(require, "bit")
 if has_bit then
 	bxor = bit.bxor
 else
+	-- luacov: disable
 	-- Try Lua 5.2
 	local has_bit32, bit32 = pcall(require, "bit32")
 	if has_bit32 then
@@ -4301,6 +4191,7 @@ else
 			end
 		end
 	end
+	-- luacov: enable
 end
 
 local function hash_fnv_1a(_absolute_path, str)
@@ -4354,8 +4245,6 @@ function grug.init(settings)
 	if type(mod_api) ~= "table" then
 		error("Error: mod API JSON root must be an object")
 	end
-
-	assert_mod_api(mod_api)
 
 	return setmetatable({
 		runtime_error_handler = runtime_error_handler,

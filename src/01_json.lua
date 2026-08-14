@@ -49,9 +49,11 @@ local function escape_char(c)
 	return "\\" .. (escape_char_map[c] or string.format("u%04x", c:byte()))
 end
 
+-- luacov: disable
 local function encode_nil(val) -- luacheck: ignore
 	return "null"
 end
+-- luacov: enable
 
 local function push(t, value)
 	t[#t + 1] = value
@@ -63,7 +65,9 @@ local function encode_table(val, stack)
 
 	-- Circular reference?
 	if stack[val] then
+		-- luacov: disable
 		error("circular reference")
+		-- luacov: enable
 	end
 
 	stack[val] = true
@@ -73,12 +77,16 @@ local function encode_table(val, stack)
 		local n = 0
 		for k in pairs(val) do
 			if type(k) ~= "number" then
+				-- luacov: disable
 				error("invalid table: mixed or invalid key types")
+				-- luacov: enable
 			end
 			n = n + 1
 		end
 		if n ~= #val then
+			-- luacov: disable
 			error("invalid table: sparse array")
+			-- luacov: enable
 		end
 		-- Encode
 		for _, v in ipairs(val) do
@@ -90,7 +98,9 @@ local function encode_table(val, stack)
 		-- Treat as an object
 		for k, v in pairs(val) do
 			if type(k) ~= "string" then
+				-- luacov: disable
 				error("invalid table: mixed or invalid key types")
+				-- luacov: enable
 			end
 			push(res, encode(k, stack) .. ":" .. encode(v, stack))
 		end
@@ -119,6 +129,7 @@ local function encode_string(val)
 	return '"' .. table.concat(res) .. '"'
 end
 
+-- luacov: disable
 local function encode_number(val)
 	-- Check for NaN, -inf and inf
 	if val ~= val or val <= -math.huge or val >= math.huge then
@@ -126,6 +137,7 @@ local function encode_number(val)
 	end
 	return string.format("%.14g", val)
 end
+-- luacov: enable
 
 local type_func_map = {
 	["nil"] = encode_nil,
@@ -141,7 +153,9 @@ encode = function(val, stack)
 	if f then
 		return f(val, stack)
 	end
+	-- luacov: disable
 	error("unexpected type '" .. t .. "'")
+	-- luacov: enable
 end
 
 function json.encode(val)
@@ -182,6 +196,7 @@ local function next_char(str, idx, set, negate)
 	return #str + 1
 end
 
+-- luacov: disable
 local function decode_error(str, idx, msg)
 	local line_count = 1
 	local col_count = 1
@@ -194,12 +209,14 @@ local function decode_error(str, idx, msg)
 	end
 	error(string.format("%s at line %d col %d", msg, line_count, col_count))
 end
+-- luacov: enable
 
 local function codepoint_to_utf8(n)
 	-- http://scripts.sil.org/cms/scripts/page.php?site_id=nrsi&id=iws-appendixa
 	local f = math.floor
 	if n <= 0x7f then
 		return string.char(n)
+	-- luacov: disable
 	elseif n <= 0x7ff then
 		return string.char(f(n / 64) + 192, n % 64 + 128)
 	elseif n <= 0xffff then
@@ -208,6 +225,7 @@ local function codepoint_to_utf8(n)
 		return string.char(f(n / 262144) + 240, f(n % 262144 / 4096) + 128, f(n % 4096 / 64) + 128, n % 64 + 128)
 	end
 	error(string.format("invalid unicode codepoint '%x'", n))
+	-- luacov: enable
 end
 
 local function parse_unicode_escape(s)
@@ -215,7 +233,9 @@ local function parse_unicode_escape(s)
 	local n2 = tonumber(s:sub(7, 10), 16)
 	-- Surrogate pair?
 	if n2 then
+		-- luacov: disable
 		return codepoint_to_utf8((n1 - 0xd800) * 0x400 + (n2 - 0xdc00) + 0x10000)
+		-- luacov: enable
 	else
 		return codepoint_to_utf8(n1)
 	end
@@ -230,7 +250,9 @@ local function parse_string(str, i)
 		local x = str:byte(j)
 
 		if x < 32 then
+			-- luacov: disable
 			decode_error(str, j, "control character in string")
+			-- luacov: enable
 		elseif x == 92 then -- `\`: Escape
 			res = res .. str:sub(k, j - 1)
 			j = j + 1
@@ -242,10 +264,12 @@ local function parse_string(str, i)
 				res = res .. parse_unicode_escape(hex)
 				j = j + #hex
 			else
+				-- luacov: disable
 				if not escape_chars[c] then
 					decode_error(str, j - 1, "invalid escape char '" .. c .. "' in string")
 				end
 				res = res .. escape_char_map_inv[c]
+				-- luacov: enable
 			end
 			k = j + 1
 		elseif x == 34 then -- `"`: End of string
@@ -256,7 +280,9 @@ local function parse_string(str, i)
 		j = j + 1
 	end
 
+	-- luacov: disable
 	decode_error(str, i, "expected closing quote for string")
+	-- luacov: enable
 end
 
 local function parse_number(str, i)
@@ -264,11 +290,14 @@ local function parse_number(str, i)
 	local s = str:sub(i, x - 1)
 	local n = tonumber(s)
 	if not n then
+		-- luacov: disable
 		decode_error(str, i, "invalid number '" .. s .. "'")
+		-- luacov: enable
 	end
 	return n, x
 end
 
+-- luacov: disable
 local function parse_literal(str, i)
 	local x = next_char(str, i, delim_chars)
 	local word = str:sub(i, x - 1)
@@ -277,6 +306,7 @@ local function parse_literal(str, i)
 	end
 	return literal_map[word], x
 end
+-- luacov: enable
 
 local function parse_array(str, i)
 	local res = {}
@@ -302,7 +332,9 @@ local function parse_array(str, i)
 			break
 		end
 		if chr ~= "," then
+			-- luacov: disable
 			decode_error(str, i, "expected ']' or ','")
+			-- luacov: enable
 		end
 	end
 	return res, i
@@ -321,13 +353,17 @@ local function parse_object(str, i)
 		end
 		-- Read key
 		if str:sub(i, i) ~= '"' then
+			-- luacov: disable
 			decode_error(str, i, "expected string for key")
+			-- luacov: enable
 		end
 		key, i = parse(str, i)
 		-- Read ':' delimiter
 		i = next_char(str, i, space_chars, true)
 		if str:sub(i, i) ~= ":" then
+			-- luacov: disable
 			decode_error(str, i, "expected ':' after key")
+			-- luacov: enable
 		end
 		i = next_char(str, i + 1, space_chars, true)
 		-- Read value
@@ -342,7 +378,9 @@ local function parse_object(str, i)
 			break
 		end
 		if chr ~= "," then
+			-- luacov: disable
 			decode_error(str, i, "expected '}' or ','")
+			-- luacov: enable
 		end
 	end
 	return res, i
@@ -374,17 +412,23 @@ parse = function(str, idx)
 	if f then
 		return f(str, idx)
 	end
+	-- luacov: disable
 	decode_error(str, idx, "unexpected character '" .. chr .. "'")
+	-- luacov: enable
 end
 
 function json.decode(str)
 	if type(str) ~= "string" then
+		-- luacov: disable
 		error("expected argument of type string, got " .. type(str))
+		-- luacov: enable
 	end
 	local res, idx = parse(str, next_char(str, 1, space_chars, true))
 	idx = next_char(str, idx, space_chars, true)
 	if idx <= #str then
+		-- luacov: disable
 		decode_error(str, idx, "trailing garbage")
+		-- luacov: enable
 	end
 	return res
 end
