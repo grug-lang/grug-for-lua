@@ -102,23 +102,25 @@ function TypePropagator.new(ast, mod, entity_type, mod_api, src, file_path, mods
 	return self
 end
 
--- Builds an error message pointing at `span` (a table with `line` and `pos` fields).
-function TypePropagator:new_error(msg, span)
+-- Throws an error message pointing at `span` (a table with `line` and `pos` fields).
+function TypePropagator:error(msg, span)
 	local current_function = self.filled_fn_name or "member scope"
 
 	local line = span and span.line
 	local column = span and span.pos and get_column(self.src, span.pos)
 	local source_line = span and span.pos and get_source_line(self.src, span.pos)
 
-	return string.format(
-		"  in %s (%s:%d:%d)\nError: %s\n%d $ %s",
-		current_function,
-		self.file_path,
-		line,
-		column,
-		msg,
-		line,
-		source_line
+	error(
+		string.format(
+			"  in %s (%s:%d:%d)\nError: %s\n%d $ %s",
+			current_function,
+			self.file_path,
+			line,
+			column,
+			msg,
+			line,
+			source_line
+		)
 	)
 end
 
@@ -136,10 +138,10 @@ end
 
 function TypePropagator:add_local_variable(name, var_type, type_name, span)
 	if self.local_variables[name] then
-		error(self:new_error("The local variable '" .. name .. "' shadows an earlier local variable", span))
+		self:error("The local variable '" .. name .. "' shadows an earlier local variable", span)
 	end
 	if self.global_variables[name] then
-		error(self:new_error("The local variable '" .. name .. "' shadows an earlier global variable", span))
+		self:error("The local variable '" .. name .. "' shadows an earlier global variable", span)
 	end
 	self.local_variables[name] = Variable(name, var_type, type_name)
 end
@@ -169,11 +171,9 @@ local function check_chars(self, s, label, str, span)
 	for i = 1, #s do
 		local c = string.sub(s, i, i)
 		if not (string.match(c, "%l") or string.match(c, "%d") or c == "_" or c == "-") then
-			error(
-				self:new_error(
-					"Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'",
-					span
-				)
+			self:error(
+				"Entity '" .. str .. "' its " .. label .. " name contains the invalid character '" .. c .. "'",
+				span
 			)
 		end
 	end
@@ -181,7 +181,7 @@ end
 
 function TypePropagator:validate_entity_string(str, span)
 	if not str or str == "" then
-		error(self:new_error("Entities can't be empty strings", span))
+		self:error("Entities can't be empty strings", span)
 	end
 
 	local mod, entity_name = self.mod, str
@@ -189,17 +189,17 @@ function TypePropagator:validate_entity_string(str, span)
 
 	if colon_pos then
 		if colon_pos == 1 then
-			error(self:new_error("Entity '" .. str .. "' is missing a mod name", span))
+			self:error("Entity '" .. str .. "' is missing a mod name", span)
 		end
 
 		mod = string.sub(str, 1, colon_pos - 1)
 		entity_name = string.sub(str, colon_pos + 1)
 
 		if entity_name == "" then
-			error(self:new_error("Entity '" .. str .. "' missing entity name", span))
+			self:error("Entity '" .. str .. "' missing entity name", span)
 		end
 		if mod == self.mod then
-			error(self:new_error("Entity string ('" .. str .. "') cannot refer to its own mod", span))
+			self:error("Entity string ('" .. str .. "') cannot refer to its own mod", span)
 		end
 	end
 
@@ -219,19 +219,19 @@ end
 
 function TypePropagator:validate_resource_string(str, resource_extension, span)
 	if not str or str == "" then
-		error(self:new_error("Resources can't be empty strings", span))
+		self:error("Resources can't be empty strings", span)
 	end
 	if string.sub(str, 1, 1) == "/" then
-		error(self:new_error('Remove the leading slash from the resource "' .. str .. '"', span))
+		self:error('Remove the leading slash from the resource "' .. str .. '"', span)
 	end
 	if string.sub(str, -1) == "/" then
-		error(self:new_error('Remove the trailing slash from the resource "' .. str .. '"', span))
+		self:error('Remove the trailing slash from the resource "' .. str .. '"', span)
 	end
 	if string.find(str, "\\", 1, true) then
-		error(self:new_error("Replace the '\\' with '/' in the resource \"" .. str .. '"', span))
+		self:error("Replace the '\\' with '/' in the resource \"" .. str .. '"', span)
 	end
 	if string.find(str, "//", 1, true) then
-		error(self:new_error("Replace the '//' with '/' in the resource \"" .. str .. '"', span))
+		self:error("Replace the '//' with '/' in the resource \"" .. str .. '"', span)
 	end
 
 	-- Check for single '.'
@@ -239,11 +239,11 @@ function TypePropagator:validate_resource_string(str, resource_extension, span)
 	if dot_index then
 		if dot_index == 1 then
 			if #str == 1 or string.sub(str, 2, 2) == "/" then
-				error(self:new_error("Remove the '.' from the resource \"" .. str .. '"', span))
+				self:error("Remove the '.' from the resource \"" .. str .. '"', span)
 			end
 		elseif string.sub(str, dot_index - 1, dot_index - 1) == "/" then
 			if dot_index + 1 > #str or string.sub(str, dot_index + 1, dot_index + 1) == "/" then
-				error(self:new_error("Remove the '.' from the resource \"" .. str .. '"', span))
+				self:error("Remove the '.' from the resource \"" .. str .. '"', span)
 			end
 		end
 	end
@@ -253,33 +253,31 @@ function TypePropagator:validate_resource_string(str, resource_extension, span)
 	if dotdot_index then
 		if dotdot_index == 1 then
 			if #str == 2 or string.sub(str, 3, 3) == "/" then
-				error(self:new_error("Remove the '..' from the resource \"" .. str .. '"', span))
+				self:error("Remove the '..' from the resource \"" .. str .. '"', span)
 			end
 		elseif string.sub(str, dotdot_index - 1, dotdot_index - 1) == "/" then
 			if dotdot_index + 2 > #str or string.sub(str, dotdot_index + 2, dotdot_index + 2) == "/" then
-				error(self:new_error("Remove the '..' from the resource \"" .. str .. '"', span))
+				self:error("Remove the '..' from the resource \"" .. str .. '"', span)
 			end
 		end
 	end
 
 	if string.sub(str, -1) == "." then
-		error(self:new_error('resource name "' .. str .. '" cannot end with .', span))
+		self:error('resource name "' .. str .. '" cannot end with .', span)
 	end
 
 	if resource_extension and resource_extension ~= "" then
 		if string.sub(str, -#resource_extension) ~= resource_extension then
-			error(
-				self:new_error(
-					"The resource '" .. str .. "' was supposed to have the extension '" .. resource_extension .. "'",
-					span
-				)
+			self:error(
+				"The resource '" .. str .. "' was supposed to have the extension '" .. resource_extension .. "'",
+				span
 			)
 		end
 	end
 
 	local full_path = self.mods_dir_path .. "/" .. self.mod .. "/" .. str
 	if not file_exists(full_path) then
-		error(self:new_error("resource '" .. str .. "' does not exist", span))
+		self:error("resource '" .. str .. "' does not exist", span)
 	end
 end
 
@@ -291,27 +289,23 @@ function TypePropagator:check_arguments(params, call_expr)
 	local fn_name, args = call_expr.fn_name, call_expr.arguments
 
 	if #args < #params then
-		error(
-			self:new_error(
-				"Function call '"
-					.. fn_name
-					.. "' expected the argument '"
-					.. params[#args + 1].name
-					.. "' with type "
-					.. params[#args + 1].type_name,
-				call_expr.span
-			)
+		self:error(
+			"Function call '"
+				.. fn_name
+				.. "' expected the argument '"
+				.. params[#args + 1].name
+				.. "' with type "
+				.. params[#args + 1].type_name,
+			call_expr.span
 		)
 	end
 	if #args > #params then
-		error(
-			self:new_error(
-				"Function call '"
-					.. fn_name
-					.. "' got an unexpected extra argument with type "
-					.. tostring(args[#params + 1].result.type_name),
-				args[#params + 1].span or call_expr.span
-			)
+		self:error(
+			"Function call '"
+				.. fn_name
+				.. "' got an unexpected extra argument with type "
+				.. tostring(args[#params + 1].result.type_name),
+			args[#params + 1].span or call_expr.span
 		)
 	end
 
@@ -321,26 +315,22 @@ function TypePropagator:check_arguments(params, call_expr)
 
 		if is_string then
 			if param.type == "ENTITY" then
-				error(
-					self:new_error(
-						"The host function '"
-							.. fn_name
-							.. "' expects an entity string, so put an 'e' in front of string \""
-							.. arg.string
-							.. '"',
-						arg.span
-					)
+				self:error(
+					"The host function '"
+						.. fn_name
+						.. "' expects an entity string, so put an 'e' in front of string \""
+						.. arg.string
+						.. '"',
+					arg.span
 				)
 			elseif param.type == "RESOURCE" then
-				error(
-					self:new_error(
-						"The host function '"
-							.. fn_name
-							.. "' expects a resource string, so put an 'r' in front of string \""
-							.. arg.string
-							.. '"',
-						arg.span
-					)
+				self:error(
+					"The host function '"
+						.. fn_name
+						.. "' expects a resource string, so put an 'r' in front of string \""
+						.. arg.string
+						.. '"',
+					arg.span
 				)
 			end
 		end
@@ -354,33 +344,29 @@ function TypePropagator:check_arguments(params, call_expr)
 		end
 
 		if not arg.result or not arg.result.type then
-			error(
-				self:new_error(
-					"Function call '"
-						.. fn_name
-						.. "' expected the type "
-						.. param.type_name
-						.. " for argument '"
-						.. param.name
-						.. "', but got a function call that doesn't return anything",
-					arg.span
-				)
+			self:error(
+				"Function call '"
+					.. fn_name
+					.. "' expected the type "
+					.. param.type_name
+					.. " for argument '"
+					.. param.name
+					.. "', but got a function call that doesn't return anything",
+				arg.span
 			)
 		end
 
 		if are_incompatible_types(param.type, param.type_name, arg.result.type, arg.result.type_name) then
-			error(
-				self:new_error(
-					"Function call '"
-						.. fn_name
-						.. "' expected the type "
-						.. param.type_name
-						.. " for argument '"
-						.. param.name
-						.. "', but got "
-						.. arg.result.type_name,
-					arg.span
-				)
+			self:error(
+				"Function call '"
+					.. fn_name
+					.. "' expected the type "
+					.. param.type_name
+					.. " for argument '"
+					.. param.name
+					.. "', but got "
+					.. arg.result.type_name,
+				arg.span
 			)
 		end
 	end
@@ -414,12 +400,12 @@ function TypePropagator:fill_call_expr(expr)
 	end
 
 	if self.export_fns[fn_name] then
-		error(self:new_error("Mods aren't allowed to call their own export functions", expr.span))
+		self:error("Mods aren't allowed to call their own export functions", expr.span)
 	elseif string.sub(fn_name, 1, 1) == "_" then
-		error(self:new_error("The local function '" .. fn_name .. "' was not defined by this grug file", expr.span))
+		self:error("The local function '" .. fn_name .. "' was not defined by this grug file", expr.span)
 	end
 
-	error(self:new_error("The game function '" .. fn_name .. "' was not declared by mod_api.json", expr.span))
+	self:error("The game function '" .. fn_name .. "' was not declared by mod_api.json", expr.span)
 end
 
 function TypePropagator:fill_method_expr(expr)
@@ -428,9 +414,9 @@ function TypePropagator:fill_method_expr(expr)
 	-- Method chaining is not allowed, e.g. `a.b().c()` or `foo().c()`.
 	if receiver.fn_name then
 		if not receiver.receiver then
-			error(self:new_error("Cannot call method on the result of a function call", expr.span))
+			self:error("Cannot call method on the result of a function call", expr.span)
 		else
-			error(self:new_error("Method chaining is not allowed", expr.span))
+			self:error("Method chaining is not allowed", expr.span)
 		end
 	end
 
@@ -440,7 +426,7 @@ function TypePropagator:fill_method_expr(expr)
 	if receiver.result.type == "ID" then
 		receiver_type_name = receiver.result.type_name
 	else
-		error(self:new_error("Cannot call method on '" .. tostring(receiver.result.type_name) .. "' type", expr.span))
+		self:error("Cannot call method on '" .. tostring(receiver.result.type_name) .. "' type", expr.span)
 	end
 
 	for _, arg in ipairs(expr.arguments) do
@@ -449,17 +435,12 @@ function TypePropagator:fill_method_expr(expr)
 
 	local available_methods = self.classes[receiver_type_name]
 	if not available_methods then
-		error(self:new_error("Type '" .. receiver_type_name .. "' does not have any methods", expr.span))
+		self:error("Type '" .. receiver_type_name .. "' does not have any methods", expr.span)
 	end
 
 	local method = available_methods[expr.fn_name]
 	if not method then
-		error(
-			self:new_error(
-				"Cannot find method '" .. expr.fn_name .. "' on type '" .. receiver_type_name .. "'",
-				expr.span
-			)
-		)
+		self:error("Cannot find method '" .. expr.fn_name .. "' on type '" .. receiver_type_name .. "'", expr.span)
 	end
 
 	self:check_arguments(method.parameters, expr)
@@ -499,42 +480,33 @@ function TypePropagator:fill_binary_expr(expr)
 	if left.result.type == "STRING" and op ~= "EQUALS_TOKEN" and op ~= "NOT_EQUALS_TOKEN" then
 		if op == "PLUS_TOKEN" then
 			if left.result.type_name == right.result.type_name then
-				error(self:new_error("cannot add strings with '+'", expr.op_span))
+				self:error("cannot add strings with '+'", expr.op_span)
 			else
-				error(
-					self:new_error(
-						"The left and right operand of a binary expression ('"
-							.. (OPERATOR_STR[op] or op)
-							.. "') must have the same type, but got "
-							.. tostring(left.result.type_name)
-							.. " and "
-							.. tostring(right.result.type_name),
-						expr.op_span
-					)
+				self:error(
+					"The left and right operand of a binary expression ('"
+						.. (OPERATOR_STR[op] or op)
+						.. "') must have the same type, but got "
+						.. tostring(left.result.type_name)
+						.. " and "
+						.. tostring(right.result.type_name),
+					expr.op_span
 				)
 			end
 		else
-			error(
-				self:new_error(
-					"You can't use the '" .. (OPERATOR_STR[op] or op) .. "' operator on strings",
-					expr.op_span
-				)
-			)
+			self:error("You can't use the '" .. (OPERATOR_STR[op] or op) .. "' operator on strings", expr.op_span)
 		end
 	end
 
 	local is_id = (left.result.type_name == "id" or right.result.type_name == "id")
 	if not is_id and left.result.type_name ~= right.result.type_name then
-		error(
-			self:new_error(
-				"The left and right operand of a binary expression ('"
-					.. (OPERATOR_STR[op] or op)
-					.. "') must have the same type, but got "
-					.. tostring(left.result.type_name)
-					.. " and "
-					.. tostring(right.result.type_name),
-				expr.op_span
-			)
+		self:error(
+			"The left and right operand of a binary expression ('"
+				.. (OPERATOR_STR[op] or op)
+				.. "') must have the same type, but got "
+				.. tostring(left.result.type_name)
+				.. " and "
+				.. tostring(right.result.type_name),
+			expr.op_span
 		)
 	end
 
@@ -551,19 +523,19 @@ function TypePropagator:fill_binary_expr(expr)
 		or op == "LESS_TOKEN"
 	then
 		if left.result.type ~= "NUMBER" then
-			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span))
+			self:error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span)
 		end
 
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	elseif op == "AND_TOKEN" or op == "OR_TOKEN" then
 		if left.result.type ~= "BOOL" then
-			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects bool", expr.op_span))
+			self:error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects bool", expr.op_span)
 		end
 
 		expr.result.type, expr.result.type_name = "BOOL", "bool"
 	else
 		if left.result.type ~= "NUMBER" then
-			error(self:new_error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span))
+			self:error("'" .. (OPERATOR_STR[op] or op) .. "' operator expects number", expr.op_span)
 		end
 
 		expr.result.type, expr.result.type_name = left.result.type, left.result.type_name
@@ -581,42 +553,34 @@ function TypePropagator:fill_expr(expr)
 	if expr.name and not expr.fn_name then
 		local var = self:get_variable(expr.name)
 		if not var then
-			error(self:new_error("The variable '" .. expr.name .. "' does not exist", expr.span))
+			self:error("The variable '" .. expr.name .. "' does not exist", expr.span)
 		end
 		expr.result.type, expr.result.type_name = var.type, var.type_name
 	elseif expr.operator and not expr.left_expr then
 		local op, inner = expr.operator, expr.expr
 		if inner.operator == op and not inner.left_expr then
-			error(
-				self:new_error(
-					"Found '"
-						.. (OPERATOR_STR[op] or op)
-						.. "' directly next to another '"
-						.. (OPERATOR_STR[op] or op)
-						.. "', which can be simplified by just removing both of them",
-					expr.op_span
-				)
+			self:error(
+				"Found '"
+					.. (OPERATOR_STR[op] or op)
+					.. "' directly next to another '"
+					.. (OPERATOR_STR[op] or op)
+					.. "', which can be simplified by just removing both of them",
+				expr.op_span
 			)
 		end
 		self:fill_expr(inner)
 		expr.result.type, expr.result.type_name = inner.result.type, inner.result.type_name
 		if op == "NOT_TOKEN" then
 			if expr.result.type ~= "BOOL" then
-				error(
-					self:new_error(
-						"Found 'not' before "
-							.. tostring(expr.result.type_name)
-							.. ", but it can only be put before a bool",
-						expr.op_span
-					)
+				self:error(
+					"Found 'not' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a bool",
+					expr.op_span
 				)
 			end
 		elseif expr.result.type ~= "NUMBER" then
-			error(
-				self:new_error(
-					"Found '-' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a number",
-					expr.op_span
-				)
+			self:error(
+				"Found '-' before " .. tostring(expr.result.type_name) .. ", but it can only be put before a number",
+				expr.op_span
 			)
 		end
 	elseif expr.operator and expr.left_expr then
@@ -643,30 +607,26 @@ function TypePropagator:fill_statements(statements)
 				if
 					are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name)
 				then
-					error(
-						self:new_error(
-							"Can't assign "
-								.. tostring(stmt.expr.result.type_name)
-								.. " to '"
-								.. stmt.name
-								.. "', which has type "
-								.. tostring(stmt.type_name),
-							stmt.expr_span
-						)
+					self:error(
+						"Can't assign "
+							.. tostring(stmt.expr.result.type_name)
+							.. " to '"
+							.. stmt.name
+							.. "', which has type "
+							.. tostring(stmt.type_name),
+						stmt.expr_span
 					)
 				end
 				self:add_local_variable(stmt.name, stmt.type, stmt.type_name, stmt.decl_span)
 			else
 				if not var then
-					error(
-						self:new_error(
-							"Can't assign to the variable '" .. stmt.name .. "', since it does not exist",
-							stmt.decl_span
-						)
+					self:error(
+						"Can't assign to the variable '" .. stmt.name .. "', since it does not exist",
+						stmt.decl_span
 					)
 				end
 				if self.global_variables[stmt.name] and var.type == "ID" then
-					error(self:new_error("Global id variables can't be reassigned", stmt.expr_span))
+					self:error("Global id variables can't be reassigned", stmt.expr_span)
 				end
 				if
 					are_incompatible_types(
@@ -676,16 +636,14 @@ function TypePropagator:fill_statements(statements)
 						stmt.expr.result.type_name
 					)
 				then
-					error(
-						self:new_error(
-							"Can't assign "
-								.. tostring(stmt.expr.result.type_name)
-								.. " to '"
-								.. var.name
-								.. "', which has type "
-								.. tostring(var.type_name),
-							stmt.expr_span
-						)
+					self:error(
+						"Can't assign "
+							.. tostring(stmt.expr.result.type_name)
+							.. " to '"
+							.. var.name
+							.. "', which has type "
+							.. tostring(var.type_name),
+						stmt.expr_span
 					)
 				end
 			end
@@ -698,11 +656,9 @@ function TypePropagator:fill_statements(statements)
 		elseif stype == "IfStatement" then
 			self:fill_expr(stmt.condition)
 			if stmt.condition.result.type ~= "BOOL" then
-				error(
-					self:new_error(
-						"If condition must be bool but got '" .. stmt.condition.result.type_name .. "'",
-						stmt.condition.span or stmt.condition.op_span
-					)
+				self:error(
+					"If condition must be bool but got '" .. stmt.condition.result.type_name .. "'",
+					stmt.condition.span or stmt.condition.op_span
 				)
 			end
 			self:fill_statements(stmt.if_body)
@@ -715,11 +671,9 @@ function TypePropagator:fill_statements(statements)
 			end
 			self:fill_expr(stmt.condition)
 			if stmt.condition.result.type ~= "BOOL" then
-				error(
-					self:new_error(
-						"While condition must be bool but got '" .. stmt.condition.result.type_name .. "'",
-						stmt.condition.span or stmt.condition.op_span
-					)
+				self:error(
+					"While condition must be bool but got '" .. stmt.condition.result.type_name .. "'",
+					stmt.condition.span or stmt.condition.op_span
 				)
 			end
 			self:fill_statements(stmt.body_statements)
@@ -727,11 +681,9 @@ function TypePropagator:fill_statements(statements)
 			if stmt.value then
 				self:fill_expr(stmt.value)
 				if not self.fn_return_type then
-					error(
-						self:new_error(
-							"Function '" .. tostring(self.filled_fn_name) .. "' wasn't supposed to return any value",
-							stmt.value.span
-						)
+					self:error(
+						"Function '" .. tostring(self.filled_fn_name) .. "' wasn't supposed to return any value",
+						stmt.value.span
 					)
 				end
 				if
@@ -742,27 +694,23 @@ function TypePropagator:fill_statements(statements)
 						stmt.value.result.type_name
 					)
 				then
-					error(
-						self:new_error(
-							"Function '"
-								.. tostring(self.filled_fn_name)
-								.. "' is supposed to return "
-								.. tostring(self.fn_return_type_name)
-								.. ", not "
-								.. tostring(stmt.value.result.type_name),
-							stmt.value.span
-						)
+					self:error(
+						"Function '"
+							.. tostring(self.filled_fn_name)
+							.. "' is supposed to return "
+							.. tostring(self.fn_return_type_name)
+							.. ", not "
+							.. tostring(stmt.value.result.type_name),
+						stmt.value.span
 					)
 				end
 			elseif self.fn_return_type then
-				error(
-					self:new_error(
-						"Function '"
-							.. tostring(self.filled_fn_name)
-							.. "' is supposed to return a value of type "
-							.. tostring(self.fn_return_type_name),
-						stmt.span
-					)
+				self:error(
+					"Function '"
+						.. tostring(self.filled_fn_name)
+						.. "' is supposed to return a value of type "
+						.. tostring(self.fn_return_type_name),
+					stmt.span
 				)
 			end
 		end
@@ -789,9 +737,7 @@ function TypePropagator:check_global_expr(expr, name)
 		end
 	elseif expr.fn_name then
 		if self.local_fns[expr.fn_name] then
-			error(
-				self:new_error("The global variable '" .. name .. "' isn't allowed to call local functions", expr.span)
-			)
+			self:error("The global variable '" .. name .. "' isn't allowed to call local functions", expr.span)
 		end
 		for _, arg in ipairs(expr.arguments) do
 			self:check_global_expr(arg, name)
@@ -813,29 +759,25 @@ function TypePropagator:fill_global_variables()
 			self:fill_expr(stmt.expr)
 
 			if stmt.expr.name == "me" and not stmt.expr.fn_name then
-				error(self:new_error("Global variables can't be assigned 'me'", stmt.expr_span))
+				self:error("Global variables can't be assigned 'me'", stmt.expr_span)
 			end
 
 			if are_incompatible_types(stmt.type, stmt.type_name, stmt.expr.result.type, stmt.expr.result.type_name) then
-				error(
-					self:new_error(
-						"Can't assign "
-							.. tostring(stmt.expr.result.type_name)
-							.. " to '"
-							.. stmt.name
-							.. "', which has type "
-							.. tostring(stmt.type_name),
-						stmt.expr_span
-					)
+				self:error(
+					"Can't assign "
+						.. tostring(stmt.expr.result.type_name)
+						.. " to '"
+						.. stmt.name
+						.. "', which has type "
+						.. tostring(stmt.type_name),
+					stmt.expr_span
 				)
 			end
 
 			if self.global_variables[stmt.name] then
-				error(
-					self:new_error(
-						"The global variable '" .. stmt.name .. "' shadows an earlier global variable",
-						stmt.decl_span
-					)
+				self:error(
+					"The global variable '" .. stmt.name .. "' shadows an earlier global variable",
+					stmt.decl_span
 				)
 			end
 
@@ -863,15 +805,13 @@ function TypePropagator:fill_export_fns()
 	for name in pairs(self.export_fns) do
 		self.filled_fn_name = name
 		if not expected_map[name] then
-			error(
-				self:new_error(
-					"The function '"
-						.. name
-						.. "' was not declared by entity '"
-						.. self.file_entity_type
-						.. "' in mod_api.json",
-					self.export_fns[name].span
-				)
+			self:error(
+				"The function '"
+					.. name
+					.. "' was not declared by entity '"
+					.. self.file_entity_type
+					.. "' in mod_api.json",
+				self.export_fns[name].span
 			)
 		end
 	end
@@ -890,15 +830,13 @@ function TypePropagator:fill_export_fns()
 			local curr_idx = get_idx(parser_names, name)
 			if last_idx > curr_idx then
 				self.filled_fn_name = name
-				error(
-					self:new_error(
-						"The function '"
-							.. name
-							.. "' needs to be moved before or after a different export function, according to the entity '"
-							.. self.file_entity_type
-							.. "' in mod_api.json",
-						self.export_fns[name].span
-					)
+				self:error(
+					"The function '"
+						.. name
+						.. "' needs to be moved before or after a different export function, according to the entity '"
+						.. self.file_entity_type
+						.. "' in mod_api.json",
+					self.export_fns[name].span
 				)
 			end
 			last_idx = curr_idx
@@ -912,28 +850,24 @@ function TypePropagator:fill_export_fns()
 
 			if #fn.parameters ~= #params then
 				if #fn.parameters < #params then
-					error(
-						self:new_error(
-							"Function '"
-								.. name
-								.. "' expected the parameter '"
-								.. params[#fn.parameters + 1].name
-								.. "' with type "
-								.. params[#fn.parameters + 1].type,
-							fn.span
-						)
+					self:error(
+						"Function '"
+							.. name
+							.. "' expected the parameter '"
+							.. params[#fn.parameters + 1].name
+							.. "' with type "
+							.. params[#fn.parameters + 1].type,
+						fn.span
 					)
 				else
-					error(
-						self:new_error(
-							"Function '"
-								.. name
-								.. "' got an unexpected extra parameter '"
-								.. fn.parameters[#params + 1].name
-								.. "' with type "
-								.. fn.parameters[#params + 1].type_name,
-							fn.parameters[#params + 1].span
-						)
+					self:error(
+						"Function '"
+							.. name
+							.. "' got an unexpected extra parameter '"
+							.. fn.parameters[#params + 1].name
+							.. "' with type "
+							.. fn.parameters[#params + 1].type_name,
+						fn.parameters[#params + 1].span
 					)
 				end
 			end
@@ -941,32 +875,28 @@ function TypePropagator:fill_export_fns()
 			for i, param in ipairs(fn.parameters) do
 				local p = params[i]
 				if param.name ~= p.name then
-					error(
-						self:new_error(
-							"Function '"
-								.. name
-								.. "' its '"
-								.. param.name
-								.. "' parameter was supposed to be named '"
-								.. p.name
-								.. "'",
-							param.span
-						)
+					self:error(
+						"Function '"
+							.. name
+							.. "' its '"
+							.. param.name
+							.. "' parameter was supposed to be named '"
+							.. p.name
+							.. "'",
+						param.span
 					)
 				end
 				if param.type_name ~= p.type then
-					error(
-						self:new_error(
-							"Function '"
-								.. name
-								.. "' its '"
-								.. p.name
-								.. "' parameter was supposed to have the type "
-								.. p.type
-								.. ", but got "
-								.. param.type_name,
-							param.type_span
-						)
+					self:error(
+						"Function '"
+							.. name
+							.. "' its '"
+							.. p.name
+							.. "' parameter was supposed to have the type "
+							.. p.type
+							.. ", but got "
+							.. param.type_name,
+						param.type_span
 					)
 				end
 			end
@@ -990,15 +920,13 @@ function TypePropagator:fill_local_fns()
 		if fn.return_type then
 			local last = fn.body_statements[#fn.body_statements]
 			if not last or last.stmt_type ~= "ReturnStatement" then
-				error(
-					self:new_error(
-						"Function '"
-							.. tostring(name)
-							.. "' is supposed to return "
-							.. tostring(fn.return_type_name)
-							.. " as its last line",
-						fn.span
-					)
+				self:error(
+					"Function '"
+						.. tostring(name)
+						.. "' is supposed to return "
+						.. tostring(fn.return_type_name)
+						.. " as its last line",
+					fn.span
 				)
 			end
 		end
