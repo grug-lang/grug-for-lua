@@ -485,9 +485,11 @@ function TypePropagator:fill_binary_expr(expr)
 				self:error(
 					"The left and right operand of a binary expression ('"
 						.. (OPERATOR_STR[op] or op)
-						.. "') must have the same type, but got "
+						.. "') must have the same type, but got " -- luacov: disable
+						-- luacov: enable
 						.. tostring(left.result.type_name)
-						.. " and "
+						.. " and " -- luacov: disable
+						-- luacov: enable
 						.. tostring(right.result.type_name),
 					expr.op_span
 				)
@@ -502,9 +504,11 @@ function TypePropagator:fill_binary_expr(expr)
 		self:error(
 			"The left and right operand of a binary expression ('"
 				.. (OPERATOR_STR[op] or op)
-				.. "') must have the same type, but got "
+				.. "') must have the same type, but got " -- luacov: disable
+				-- luacov: enable
 				.. tostring(left.result.type_name)
-				.. " and "
+				.. " and " -- luacov: disable
+				-- luacov: enable
 				.. tostring(right.result.type_name),
 			expr.op_span
 		)
@@ -562,7 +566,8 @@ function TypePropagator:fill_expr(expr)
 			self:error(
 				"Found '"
 					.. (OPERATOR_STR[op] or op)
-					.. "' directly next to another '"
+					.. "' directly next to another '" -- luacov: disable
+					-- luacov: enable
 					.. (OPERATOR_STR[op] or op)
 					.. "', which can be simplified by just removing both of them",
 				expr.op_span
@@ -610,7 +615,8 @@ function TypePropagator:fill_statements(statements)
 					self:error(
 						"Can't assign "
 							.. tostring(stmt.expr.result.type_name)
-							.. " to '"
+							.. " to '" -- luacov: disable
+							-- luacov: enable
 							.. stmt.name
 							.. "', which has type "
 							.. tostring(stmt.type_name),
@@ -639,7 +645,8 @@ function TypePropagator:fill_statements(statements)
 					self:error(
 						"Can't assign "
 							.. tostring(stmt.expr.result.type_name)
-							.. " to '"
+							.. " to '" -- luacov: disable
+							-- luacov: enable
 							.. var.name
 							.. "', which has type "
 							.. tostring(var.type_name),
@@ -697,9 +704,11 @@ function TypePropagator:fill_statements(statements)
 					self:error(
 						"Function '"
 							.. tostring(self.filled_fn_name)
-							.. "' is supposed to return "
+							.. "' is supposed to return " -- luacov: disable
+							-- luacov: enable
 							.. tostring(self.fn_return_type_name)
-							.. ", not "
+							.. ", not " -- luacov: disable
+							-- luacov: enable
 							.. tostring(stmt.value.result.type_name),
 						stmt.value.span
 					)
@@ -708,7 +717,8 @@ function TypePropagator:fill_statements(statements)
 				self:error(
 					"Function '"
 						.. tostring(self.filled_fn_name)
-						.. "' is supposed to return a value of type "
+						.. "' is supposed to return a value of type " -- luacov: disable
+						-- luacov: enable
 						.. tostring(self.fn_return_type_name),
 					stmt.span
 				)
@@ -766,7 +776,8 @@ function TypePropagator:fill_global_variables()
 				self:error(
 					"Can't assign "
 						.. tostring(stmt.expr.result.type_name)
-						.. " to '"
+						.. " to '" -- luacov: disable
+						-- luacov: enable
 						.. stmt.name
 						.. "', which has type "
 						.. tostring(stmt.type_name),
@@ -926,7 +937,8 @@ function TypePropagator:fill_local_fns()
 				self:error(
 					"Function '"
 						.. tostring(name)
-						.. "' is supposed to return "
+						.. "' is supposed to return " -- luacov: disable
+						-- luacov: enable
 						.. tostring(fn.return_type_name)
 						.. " as its last line",
 					fn.span

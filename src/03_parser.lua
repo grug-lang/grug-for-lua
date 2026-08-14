@@ -536,7 +536,8 @@ function Parser:parse_statement()
 		self:error(
 			"Expected a statement token, but got "
 				.. token_type_str(tok.type)
-				.. " on line "
+				.. " on line " -- luacov: disable
+				-- luacov: enable
 				.. self:get_token_line_number(self.idx),
 			tok
 		)
