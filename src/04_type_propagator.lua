@@ -793,7 +793,10 @@ local function get_idx(parser_names, name)
 			return i
 		end
 	end
-	assert(false)
+
+	-- luacov: disable
+	assert(false) -- Unreachable
+	-- luacov: enable
 end
 
 function TypePropagator:fill_export_fns()
