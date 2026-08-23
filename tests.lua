@@ -387,8 +387,17 @@ local LUA_TO_C_ARG = {
 	boolean = function(c_arg, v)
 		c_arg._bool = v
 	end,
-	string = function(c_arg, v)
-		c_arg._string = string_buf(v)
+	-- string_buf() returns a GC-owned char[] cdata. Storing its pointer value
+	-- into c_arg._string does NOT anchor it: a raw pointer inside a cdata
+	-- union field is invisible to LuaJIT's GC, so the buffer can be collected
+	-- the moment nothing else references it, even while c_arg._string still
+	-- points at its (now freed) memory. string_bufs is a plain Lua table the
+	-- caller keeps alive until after the C call returns, which anchors every
+	-- buffer for as long as it's actually needed.
+	string = function(c_arg, v, string_bufs)
+		local buf = string_buf(v)
+		string_bufs[#string_bufs + 1] = buf
+		c_arg._string = buf
 	end,
 }
 
@@ -422,10 +431,11 @@ local function register_fn(state, name)
 	state:register_fn(name, function(st, ...) -- luacheck: ignore
 		local args = { ... }
 		local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
+		local string_bufs = {} -- Anchors string_buf() cdata until c_fn() returns.
 
 		for i, v in ipairs(args) do
 			local setter = LUA_TO_C_ARG[type(v)]
-			setter(c_args[i - 1], v)
+			setter(c_args[i - 1], v, string_bufs)
 		end
 
 		local result_u64 = c_fn(ffi.cast("void*", st.id), c_args)
@@ -456,10 +466,11 @@ local function register_method(state, class_name, name, native_name)
 	state:register_method(class_name, name, function(st, ...) -- luacheck: ignore
 		local args = { ... }
 		local c_args = ffi.new("GrugValueUnion[?]", math.max(#args, 1))
+		local string_bufs = {} -- Anchors string_buf() cdata until c_fn() returns.
 
 		for i, v in ipairs(args) do
 			local setter = LUA_TO_C_ARG[type(v)]
-			setter(c_args[i - 1], v)
+			setter(c_args[i - 1], v, string_bufs)
 		end
 
 		local result_u64 = c_fn(ffi.cast("void*", st.id), c_args)
@@ -558,8 +569,16 @@ function callbacks.destroy_grug_state(state_ptr_)
 	states[to_uintptr(state_ptr_)] = nil
 end
 
+-- Anchors the cdata returned by get_c_error_string(). A per-call local won't
+-- do here: the buffer has to survive past the Lua callback returning, since
+-- the C side only reads *error_out_ *after* getting control back. Getting
+-- overwritten by the next error is fine -- only one error is ever "in flight"
+-- at a time in this harness.
+local last_error_buf = nil
+
 local function get_c_error_string(err)
-	return string_buf(err)
+	last_error_buf = string_buf(err)
+	return last_error_buf
 end
 
 -- Turns `./grug.lua:731: Expected token` into `Expected token`.
