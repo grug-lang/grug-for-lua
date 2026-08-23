@@ -94,6 +94,7 @@ jobs:
         run: |
           git clone https://github.com/grug-lang/grug-tests
           cd grug-tests
+          git checkout grug-for-lua-coverage # TODO: Remove
           cmake -S . -B build
           cmake --build build
 
