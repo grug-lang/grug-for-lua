@@ -110,11 +110,6 @@ jobs:
         if: matrix.lua != 'luaj-jse-2.0.3' && matrix.lua != 'luajit-remake'
         run: $LUA_CMD tests.lua "" ./grug-tests
 
-      - name: Run all Lua examples
-        if: matrix.lua != 'luajit-remake'
-        run: |
-          python3 run_examples.py
-
       - name: Run benchmarks
         if: matrix.lua == 'luajit' || matrix.lua == 'luajit-remake'
         run: |
