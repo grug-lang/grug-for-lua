@@ -3552,6 +3552,18 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 	local old_executed_entity = entity.state._executed_entity
 	entity.state._executed_entity = entity
 
+	-- fn_depth counts how many call_on_function frames are currently on the
+	-- stack. This is reentrant: a host function can call back into an
+	-- exported function (on this entity or another) while we're already
+	-- inside one, e.g. via a synchronous game callback. old_fn_depth == 0
+	-- below tells us this is the outermost frame for the current external
+	-- call, which is the only place it's safe to swallow an error; a nested
+	-- frame must keep re-raising it so the whole chain unwinds, instead of
+	-- letting an outer frame's mod code carry on running after something
+	-- below it already failed.
+	local old_fn_depth = entity.state.fn_depth
+	entity.state.fn_depth = old_fn_depth + 1
+
 	-- safe_mode=true: wrap in a pcall and route all runtime errors to
 	-- runtime_error_handler so the game never crashes on bad mod code.
 	local ok, err = pcall(fn, ...)
@@ -3559,22 +3571,59 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 	entity.fn_name = old_fn_name
 	entity.state._executed_entity = old_executed_entity
 	entity.state._executed_file = old_executed_file
+	entity.state.fn_depth = old_fn_depth
 
 	if not ok then
+		local is_outermost = old_fn_depth == 0
+		local err_type = type(err) == "table" and err.type
+
+		-- Already reported by a nested call_on_function frame below us (it
+		-- caught this at the point of origin, one level deeper): don't call
+		-- runtime_error_handler again, just keep unwinding, or stop here if
+		-- we're now the outermost frame.
+		if
+			err_type == "RERAISED_TIME_LIMIT_EXCEEDED"
+			or err_type == "RERAISED_GAME_FN_ERROR"
+			or err_type == "RERAISED_STACK_OVERFLOW"
+		then
+			if is_outermost then
+				return
+			end
+			error(err, 0)
+		end
+
 		-- Time-limit exceeded: generated while loops throw this table.
-		if type(err) == "table" and err.type == "TIME_LIMIT_EXCEEDED" then
+		if err_type == "TIME_LIMIT_EXCEEDED" then
 			entity.state.runtime_error_handler(
 				err.reason,
 				"TIME_LIMIT_EXCEEDED",
 				export_fn_name,
 				entity.file.relative_path
 			)
-			return
+			if is_outermost then
+				return
+			end
+			error({ type = "RERAISED_TIME_LIMIT_EXCEEDED", reason = err.reason }, 0)
+		end
+
+		-- Game function error: raised by a host function via grug.game_fn_error().
+		if err_type == "GAME_FN_ERROR" then
+			entity.state.runtime_error_handler(
+				err.reason,
+				"RERAISED_GAME_FN_ERROR",
+				export_fn_name,
+				entity.file.relative_path
+			)
+			if is_outermost then
+				return
+			end
+			error({ type = "RERAISED_GAME_FN_ERROR", reason = err.reason }, 0)
 		end
 
 		-- Stack overflow: Lua itself throws a string containing "stack overflow".
-		-- The pcall here is the outer pcall that the recursion unwinds to;
-		-- no explicit depth tracking is needed in the transpiled code.
+		-- Detecting it needs no manual depth counter (Lua's own call stack
+		-- already triggers it), but reporting it still needs the same
+		-- outermost-frame gate as the other two, for the same reentrancy reason.
 		if type(err) == "string" and err:find("stack overflow", 1, true) then
 			entity.state.runtime_error_handler(
 				"Stack overflow, so check for accidental infinite recursion",
@@ -3582,7 +3631,10 @@ function TranspilerBackend:call_on_function(entity, export_fn_name, ...) -- luac
 				export_fn_name,
 				entity.file.relative_path
 			)
-			return
+			if is_outermost then
+				return
+			end
+			error({ type = "RERAISED_STACK_OVERFLOW" }, 0)
 		end
 
 		error(err, 0)
@@ -4064,6 +4116,16 @@ end
 -- it's picked up automatically wherever host functions are injected.
 function grug:register_method(class_name, method_name, fn)
 	self.host_fns[class_name .. "__" .. method_name] = fn
+end
+
+-- Called from inside a host function (one registered via register_fn() or
+-- register_method()) to signal that the mod misused a game function, without
+-- crashing the whole game. This throws a table shaped like the errors that
+-- TranspilerBackend:call_on_function() already recognises: it catches
+-- err.type == "GAME_FN_ERROR" there and forwards it to runtime_error_handler
+-- as "RERAISED_GAME_FN_ERROR".
+function grug.game_fn_error(reason) -- luacheck: ignore
+	error({ type = "GAME_FN_ERROR", reason = reason }, 0)
 end
 
 -- luacov: disable

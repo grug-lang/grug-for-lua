@@ -397,6 +397,16 @@ function grug:register_method(class_name, method_name, fn)
 	self.host_fns[class_name .. "__" .. method_name] = fn
 end
 
+-- Called from inside a host function (one registered via register_fn() or
+-- register_method()) to signal that the mod misused a game function, without
+-- crashing the whole game. This throws a table shaped like the errors that
+-- TranspilerBackend:call_on_function() already recognises: it catches
+-- err.type == "GAME_FN_ERROR" there and forwards it to runtime_error_handler
+-- as "RERAISED_GAME_FN_ERROR".
+function grug.game_fn_error(reason) -- luacheck: ignore
+	error({ type = "GAME_FN_ERROR", reason = reason }, 0)
+end
+
 -- luacov: disable
 function grug:get_transpiled_code()
 	if not self._latest_transpiled_code then

@@ -585,10 +585,72 @@ end
 function InterpreterBackend:call_on_function(entity, export_fn_name, ...) -- luacheck: ignore
 	local interp = entity.data
 
+	-- Snapshot everything _run_export_fn would normally restore on a clean
+	-- return. Host functions are called directly (no pcall) for LuaJIT
+	-- tracing, so a raw Lua error escaping from inside one (e.g. via
+	-- grug.game_fn_error(), or a bubbled-up error re-thrown by a nested,
+	-- reentrant call_on_function below) unwinds straight past
+	-- _run_export_fn's own restoration code and lands here instead. Without
+	-- restoring these ourselves on that path, they'd be left dirty.
+	local old_fn_name = interp.fn_name
+	local old_local_variables = interp.local_variables
+	local old_export_fn_depth = interp.export_fn_depth
+	local old_fn_depth = interp.state.fn_depth
+	local old_executed_entity = interp.state._executed_entity
+	local old_executed_file = interp.state._executed_file
+
 	local ok, err = pcall(interp._run_export_fn, interp, export_fn_name, ...)
 
 	if not ok then
 		interp._flow = nil
+		interp.fn_name = old_fn_name
+		interp.local_variables = old_local_variables
+		interp.export_fn_depth = old_export_fn_depth
+		interp.state.fn_depth = old_fn_depth
+		interp.state._executed_entity = old_executed_entity
+		interp.state._executed_file = old_executed_file
+
+		-- old_fn_depth == 0 means this is the outermost call_on_function frame
+		-- for the current external call, i.e. we weren't reached via a host
+		-- function reentrantly calling back into an exported function. That's
+		-- the only place it's safe to swallow the error; a nested frame must
+		-- keep re-raising so the whole chain unwinds instead of letting an
+		-- outer frame's mod code carry on after something below it failed.
+		local is_outermost = old_fn_depth == 0
+		local err_type = type(err) == "table" and err.type
+
+		-- Already reported: either a nested call_on_function that caught a
+		-- GAME_FN_ERROR, or one that converted a propagating STACK_OVERFLOW /
+		-- TIME_LIMIT_EXCEEDED / RERAISED_GAME_FN_ERROR flow into a real error
+		-- via the `error(flow.err or flow, 2)` below. Don't report it again,
+		-- just keep unwinding, or stop here if we're now the outermost.
+		if
+			err_type == "RERAISED_GAME_FN_ERROR"
+			or err_type == "STACK_OVERFLOW"
+			or err_type == "TIME_LIMIT_EXCEEDED"
+		then
+			if is_outermost then
+				return
+			end
+			error(err, 0)
+		end
+
+		-- Game function error: raised by a host function via grug.game_fn_error().
+		-- This pcall is the first place such an error can be caught, since
+		-- host functions aren't individually wrapped in one (see _run_host_fn).
+		if err_type == "GAME_FN_ERROR" then
+			interp.state.runtime_error_handler(
+				err.reason,
+				"RERAISED_GAME_FN_ERROR",
+				export_fn_name,
+				entity.file.relative_path
+			)
+			if is_outermost then
+				return
+			end
+			error({ type = "RERAISED_GAME_FN_ERROR", reason = err.reason }, 0)
+		end
+
 		error(err, 0)
 	end
 
