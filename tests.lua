@@ -533,7 +533,7 @@ function callbacks.create_grug_state(mod_api_path_, mods_dir_path_, safe_mode)
 			runtime_error_handler = custom_runtime_error_handler,
 			mod_api_path = mod_api_path,
 			mods_dir_path = mods_dir_path,
-			export_fn_time_limit_ms = 1000,
+			export_fn_time_limit_ms = 2000,
 			fs = {
 				list_dir = list_dir,
 				is_dir = is_dir,
