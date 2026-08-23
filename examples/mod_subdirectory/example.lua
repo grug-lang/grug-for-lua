@@ -8,7 +8,9 @@ local function is_dir(path)
 	elseif path == "mods/animals/dogs/labrador-Dog.grug" then
 		return false
 	else
+		-- luacov: disable
 		error('Missing elseif for is_dir("' .. path .. '")')
+		-- luacov: enable
 	end
 end
 
@@ -20,7 +22,9 @@ local function list_dir(path)
 	elseif path == "mods/animals/dogs" then
 		return { "labrador-Dog.grug" }
 	else
+		-- luacov: disable
 		error('Missing elseif for list_dir("' .. path .. '")')
+		-- luacov: enable
 	end
 end
 
