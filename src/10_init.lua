@@ -162,7 +162,9 @@ end
 function grug:update()
 	local ok, err = pcall(grug._update, self)
 	if not ok then
+		-- luacov: disable
 		print(err)
+		-- luacov: enable
 	end
 end
 

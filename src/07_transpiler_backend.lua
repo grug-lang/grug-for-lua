@@ -449,8 +449,6 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	entity.fn_name = "init_globals"
 
 	if entity.state.safe_mode then
-		-- Wrap init in a pcall so that Lua stack overflows or GAME_FN_ERROR
-		-- throws during global-variable initialisation are caught.
 		local ok, init_err = pcall(chunk.init, deps, entity.state, entity.me_id)
 
 		entity.state._executed_entity = old_executed_entity

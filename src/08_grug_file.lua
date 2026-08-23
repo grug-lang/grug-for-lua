@@ -1,4 +1,5 @@
 local GrugFile = {}
+
 GrugFile.__index = function(self, key)
 	-- Allow method lookups
 	if GrugFile[key] then

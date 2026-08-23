@@ -1339,9 +1339,6 @@ function Parser:parse_statement()
 		end
 		self.idx = self.idx + 1
 		res = tok.type == "BREAK_TOKEN" and Nodes.Break() or Nodes.Continue()
-	elseif tok.type == "NEWLINE_TOKEN" then
-		self.idx = self.idx + 1
-		res = Nodes.EmptyLine()
 	elseif tok.type == "COMMENT_TOKEN" then
 		self.idx = self.idx + 1
 		res = Nodes.Comment(tok.value)
@@ -3503,8 +3500,6 @@ function TranspilerBackend:init_entity(entity) -- luacheck: ignore
 	entity.fn_name = "init_globals"
 
 	if entity.state.safe_mode then
-		-- Wrap init in a pcall so that Lua stack overflows or GAME_FN_ERROR
-		-- throws during global-variable initialisation are caught.
 		local ok, init_err = pcall(chunk.init, deps, entity.state, entity.me_id)
 
 		entity.state._executed_entity = old_executed_entity
@@ -3596,6 +3591,7 @@ end
 
 -- BEGIN 08_grug_file.lua
 local GrugFile = {}
+
 GrugFile.__index = function(self, key)
 	-- Allow method lookups
 	if GrugFile[key] then
@@ -3638,6 +3634,11 @@ end
 local GrugDir = {}
 
 GrugDir.__index = function(self, key)
+	-- Allow method lookups
+	if GrugDir[key] then
+		return GrugDir[key]
+	end
+
 	-- Directory lookup
 	local dir = self.dirs[key]
 	if dir ~= nil then
@@ -3830,7 +3831,9 @@ end
 function grug:update()
 	local ok, err = pcall(grug._update, self)
 	if not ok then
+		-- luacov: disable
 		print(err)
+		-- luacov: enable
 	end
 end
 

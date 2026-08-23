@@ -7,6 +7,4 @@ local state = grug.init({
 
 state:register_fn("unreachable", function(state, string) end)
 
-local file = state.mods["animals"]["labrador-Dog.grug"]
-local e = file:create_entity()
-e:nonexistent()
+local file = state.mods["animals"]["labrador-Dog.grug"]["foo"]

@@ -526,9 +526,6 @@ function Parser:parse_statement()
 		end
 		self.idx = self.idx + 1
 		res = tok.type == "BREAK_TOKEN" and Nodes.Break() or Nodes.Continue()
-	elseif tok.type == "NEWLINE_TOKEN" then
-		self.idx = self.idx + 1
-		res = Nodes.EmptyLine()
 	elseif tok.type == "COMMENT_TOKEN" then
 		self.idx = self.idx + 1
 		res = Nodes.Comment(tok.value)
