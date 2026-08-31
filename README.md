@@ -76,6 +76,13 @@ Clone [grug-tests](https://github.com/grug-lang/grug-tests) next to this reposit
 python amalgamate.py && luajit tests.lua
 ```
 
+### Command-line flags
+
+`tests.lua` accepts optional arguments, including:
+
+* `--continue-on-fail`: By default `tests.lua` stops at the very first failing test. Pass this flag to keep running the rest of the suite instead, so a single run can surface every failing test at once.
+* `--results-json-path <JSON path>`: By default a `results.json` file is written to the current working directory. Pass this flag to write it somewhere else instead.
+
 This will:
 
 * regenerate `grug.lua`

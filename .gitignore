@@ -3,3 +3,4 @@ transpiler_dump.lua
 luacov.report.html
 luacov.report.out
 luacov.stats.out
+results.json

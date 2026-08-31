@@ -1,14 +1,33 @@
-local whitelisted_test = arg[1]
-if whitelisted_test == "" then
-	-- luacov: disable
-	whitelisted_test = nil
-	-- luacov: enable
-end
-
-local grug_tests_path = arg[2] or "../grug-tests"
-
+local whitelisted_test = nil
+local grug_tests_path = "../grug-tests"
 -- How long each example's while-loop should run for.
-local example_timeout_secs = tonumber(arg[3]) or 0.01
+local example_timeout_secs = 0.01
+local continue_on_fail = false
+local results_json_path = nil
+
+local pos_args = 0
+local arg_index = 1
+while arg_index <= #arg do
+	local a = arg[arg_index]
+	if a == "--continue-on-fail" then
+		continue_on_fail = true
+	elseif a == "--results-json-path" then
+		arg_index = arg_index + 1
+		results_json_path = arg[arg_index]
+	else
+		pos_args = pos_args + 1
+		if pos_args == 1 then
+			if a ~= "" then
+				whitelisted_test = a
+			end
+		elseif pos_args == 2 then
+			grug_tests_path = a
+		elseif pos_args == 3 then
+			example_timeout_secs = tonumber(a) or 0.01
+		end
+	end
+	arg_index = arg_index + 1
+end
 
 local ffi
 do
@@ -33,8 +52,8 @@ end
 -- Needed so run_examples() can cd into each example's directory in-process,
 -- instead of shelling out to a subprocess (which luacov can't see into).
 ffi.cdef([[
-	char *getcwd(char *buf, size_t size);
-	int chdir(const char *path);
+    char *getcwd(char *buf, size_t size);
+    int chdir(const char *path);
 ]])
 
 -- Must be captured *before* anything ever chdir()s, and *before* the first
@@ -207,36 +226,43 @@ local interpreter_backend = require("alternative_backends/interpreter_backend")
 
 -- luacheck: push ignore
 ffi.cdef([[
-	typedef union {
-		double _number;
-		bool _bool;
-		const char *_string;
-		uint64_t _id;
-	} GrugValueUnion;
+    typedef union {
+        double _number;
+        bool _bool;
+        const char *_string;
+        uint64_t _id;
+    } GrugValueUnion;
 
-	typedef struct {
-		void* (*create_grug_state)(const char* mod_api_path, const char* mods_dir_path, bool safe_mode);
-		void (*destroy_grug_state)(void* state_ptr);
-		void* (*compile_grug_file)(void* state_ptr, const char* file_path, const char** error_out);
-		void (*destroy_grug_file)(void* state_ptr, void* file_id);
-		void* (*create_entity)(void* state_ptr, void* file_id, const char** error_out);
-		void (*destroy_entity)(void* state_ptr, void* entity_id);
-		void (*update)(void* state_ptr, const char** error_out);
-		void (*call_export_fn)(void* state_ptr, void* entity_id, const char* fn_name, GrugValueUnion* args, size_t args_len);
-		bool (*grug_to_json)(void* state_ptr, const char* input_grug_buffer, char* output_json_buffer, size_t output_buffer_len);
-		bool (*json_to_grug)(void* state_ptr, const char* input_json_buffer, char* output_grug_buffer, size_t output_buffer_len);
-		void (*game_fn_error)(void* state_ptr, const char* reason);
-	} grug_state_vtable;
+    typedef struct {
+        char* (*parse_mod_api)(const char* path);
+        void* (*create_grug_state)(const char* mod_api_path, const char* mods_dir_path, bool safe_mode);
+        void (*destroy_grug_state)(void* state_ptr);
+        void* (*compile_grug_file)(void* state_ptr, const char* file_path, const char** error_out);
+        void (*destroy_grug_file)(void* state_ptr, void* file_id);
+        void* (*create_entity)(void* state_ptr, void* file_id, const char** error_out);
+        void (*destroy_entity)(void* state_ptr, void* entity_id);
+        void (*update)(void* state_ptr, const char** error_out);
+        void (*call_export_fn)(void* state_ptr, void* entity_id, const char* fn_name, GrugValueUnion* args, size_t args_len);
+        bool (*grug_to_json)(void* state_ptr, const char* input_grug_buffer, char* output_json_buffer, size_t output_buffer_len);
+        bool (*json_to_grug)(void* state_ptr, const char* input_json_buffer, char* output_grug_buffer, size_t output_buffer_len);
+        void (*game_fn_error)(void* state_ptr, const char* reason);
+    } grug_state_vtable;
 
-	enum grug_runtime_error_type {
-		GRUG_ON_FN_STACK_OVERFLOW,
-		GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
-		GRUG_ON_FN_GAME_FN_ERROR,
-	};
+    enum grug_runtime_error_type {
+        GRUG_ON_FN_STACK_OVERFLOW,
+        GRUG_ON_FN_TIME_LIMIT_EXCEEDED,
+        GRUG_ON_FN_GAME_FN_ERROR,
+    };
 
-	void grug_tests_runtime_error_handler(const char *reason, enum grug_runtime_error_type type, const char *on_fn_name, const char *on_fn_path);
+    void grug_tests_runtime_error_handler(const char *reason, enum grug_runtime_error_type type, const char *on_fn_name, const char *on_fn_path);
 
-	void grug_tests_run(const char *tests_dir_path, const char *mod_api_path, grug_state_vtable vtable, const char *whitelisted_test);
+    struct grug_tests_options {
+        const char *whitelisted_test;
+        bool continue_on_fail;
+        const char *results_json_path;
+    };
+
+    void grug_tests_run(const char *tests_dir_path, const char *mod_api_path, grug_state_vtable vtable, struct grug_tests_options options);
 ]])
 -- luacheck: pop
 
@@ -253,8 +279,6 @@ local host_fn_names = {
 	"mega",
 	"get_false",
 	"set_is_happy",
-	"mega_f32",
-	"mega_i32",
 	"draw",
 	"utils",
 	"assert_state_is_not_null",
@@ -279,8 +303,6 @@ local host_fn_names = {
 	"set_position",
 	"cause_game_fn_error",
 	"call_on_b_fn",
-	"store",
-	"retrieve",
 	"box_number",
 	"vec_number_new",
 }
@@ -762,8 +784,13 @@ function callbacks.host_fn_error(_state_ptr_, reason_)
 	host_fn_error_reason = ffi.string(reason_)
 end
 
+function callbacks.parse_mod_api(_path)
+	return nil
+end
+
 -- Create a table to anchor the C callback closures
 local vtable_anchors = {
+	parse_mod_api = ffi.cast("char* (*)(const char*)", callbacks.parse_mod_api),
 	create_grug_state = ffi.cast("void* (*)(const char*, const char*, bool)", callbacks.create_grug_state),
 	destroy_grug_state = ffi.cast("void (*)(void*)", callbacks.destroy_grug_state),
 	compile_grug_file = ffi.cast("void* (*)(void*, const char*, const char**)", callbacks.compile_grug_file),
@@ -780,6 +807,7 @@ local vtable_anchors = {
 local vtable = ffi.new("grug_state_vtable")
 
 -- Assign the anchored closures to the struct
+vtable.parse_mod_api = vtable_anchors.parse_mod_api
 vtable.create_grug_state = vtable_anchors.create_grug_state
 vtable.destroy_grug_state = vtable_anchors.destroy_grug_state
 vtable.compile_grug_file = vtable_anchors.compile_grug_file
@@ -810,7 +838,13 @@ for _, config in ipairs(configs) do
 	current_config = config
 	print("=== Testing " .. config.name .. " ===")
 
-	grug_lib.grug_tests_run(grug_tests_path .. "/tests", grug_tests_path .. "/mod_api.json", vtable, whitelisted_test)
+	local options = ffi.new("struct grug_tests_options", {
+		whitelisted_test = whitelisted_test,
+		continue_on_fail = continue_on_fail,
+		results_json_path = results_json_path,
+	})
+
+	grug_lib.grug_tests_run(grug_tests_path .. "/tests", grug_tests_path .. "/mod_api.json", vtable, options)
 
 	assert(#states == 0)
 	assert(#files == 0)
