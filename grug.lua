@@ -2773,7 +2773,7 @@ local function serialize_global_statement(stmt)
 	local t = stmt.stmt_type
 
 	if t == "OnFn" or t == "HelperFn" then
-		result.type = (t == "OnFn") and "GLOBAL_ON_FN" or "GLOBAL_HELPER_FN"
+		result.type = (t == "OnFn") and "EXPORT_FN" or "LOCAL_FN"
 		result.name = stmt.fn_name
 		result.parameters = serialize_parameters(stmt.parameters)
 
@@ -2783,15 +2783,15 @@ local function serialize_global_statement(stmt)
 
 		result.statements = map_list(stmt.body_statements, serialize_statement) or {}
 	elseif t == "VariableStatement" then
-		result.type = "GLOBAL_VARIABLE"
+		result.type = "VARIABLE_STATEMENT"
 		result.name = stmt.name
 		result.variable_type = stmt.type_name
 		result.assignment = serialize_expr(stmt.expr)
 	elseif t == "CommentStatement" then
-		result.type = "GLOBAL_COMMENT"
+		result.type = "COMMENT_STATEMENT"
 		result.comment = stmt.string
 	elseif t == "EmptyLineStatement" then
-		result.type = "GLOBAL_EMPTY_LINE"
+		result.type = "EMPTY_LINE_STATEMENT"
 	end
 
 	return result
@@ -2979,14 +2979,14 @@ local function ast_to_grug(ast)
 	for _, stmt in ipairs(ast) do
 		local t = stmt.type
 
-		if t == "GLOBAL_VARIABLE" then
+		if t == "VARIABLE_STATEMENT" then
 			write(stmt.name .. ": " .. stmt.variable_type .. " = ", output)
 			apply_expr(stmt.assignment, output)
 			write("\n", output)
-		elseif t == "GLOBAL_ON_FN" or t == "GLOBAL_HELPER_FN" then
-			if t == "GLOBAL_ON_FN" then
+		elseif t == "EXPORT_FN" or t == "LOCAL_FN" then
+			if t == "EXPORT_FN" then
 				write("export ", output)
-			elseif t == "GLOBAL_HELPER_FN" then
+			elseif t == "LOCAL_FN" then
 				write("local ", output)
 			end
 
@@ -2994,16 +2994,16 @@ local function ast_to_grug(ast)
 			apply_params(stmt.parameters or {}, output)
 			write(")", output)
 
-			if t == "GLOBAL_HELPER_FN" and stmt.return_type then
+			if t == "LOCAL_FN" and stmt.return_type then
 				write(" " .. stmt.return_type, output)
 			end
 
 			write(" {\n", output)
 			apply_statements(stmt.statements, indentation, output)
 			write("}\n", output)
-		elseif t == "GLOBAL_EMPTY_LINE" then
+		elseif t == "EMPTY_LINE_STATEMENT" then
 			write("\n", output)
-		elseif t == "GLOBAL_COMMENT" then
+		elseif t == "COMMENT_STATEMENT" then
 			write("# " .. stmt.comment .. "\n", output)
 		end
 	end
